@@ -404,7 +404,7 @@ Create the project connection with `--auth-type user-entra-token --audience api:
 Agents must not attempt these. Do them early — both are blocking and both take about ten minutes.
 
 - [x] **[H] H-01** — Confirm Entra ID P1/P2 availability. Group-to-app-role assignment requires it; individual user assignment does not. Record in `docs/RUNBOOK.md`. (§4.3)
-- [ ] **[H] H-02** — On a throwaway app registration, set "assignment required = Yes" and confirm whether it forces admin consent in your tenant. Record the result. (§4.3)
+- [x] **[H] H-02** — On a throwaway app registration, set "assignment required = Yes" and confirm whether it forces admin consent in your tenant. Record the result. (§4.3)
 - [ ] **[H] H-03** — Run the fixture recorder against non-prod once T-07 lands.
 - [ ] **[H] H-04** — `ApiManagementGatewayLogs | getschema`; pin columns before T-19.
 - [ ] **[H] H-05** — `az monitor metrics list-definitions` per instance; confirm metric availability before T-17.
