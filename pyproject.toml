@@ -1,0 +1,65 @@
+[project]
+name = "apim-mcp"
+version = "0.1.0"
+description = "Read-only MCP server for Azure API Management"
+requires-python = ">=3.12"
+dependencies = [
+    "mcp[cli]>=1.2",
+    "azure-identity>=1.19",
+    "azure-mgmt-apimanagement>=4.0",
+    "azure-monitor-query>=1.4",
+    "httpx>=0.27",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+    "PyJWT[crypto]>=2.9",
+    "rank-bm25>=0.2",
+    "azure-monitor-opentelemetry>=1.6",
+    "tenacity>=9.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "pytest-httpx>=0.35",
+    "ruff>=0.8",
+    "mypy>=1.13",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/apim_mcp"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "B", "A", "C4", "SIM", "ASYNC", "S", "RUF"]
+ignore = ["S101"]  # assert is fine in tests
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S105", "S106"]  # hardcoded test tokens are fine
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unreachable = true
+disallow_any_explicit = false
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = ["rank_bm25.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+addopts = "--strict-markers"
+markers = [
+    "principles: enforcement tests for docs/PRINCIPLES.md",
+]
