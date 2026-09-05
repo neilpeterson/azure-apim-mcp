@@ -1,9 +1,44 @@
+# apim-mcp
+
+Read-only MCP server that answers questions about Azure API Management: API inventory
+and configuration, OpenAPI specs, semantic search across the API surface, service health,
+metrics, and gateway logs. Consumed from GitHub Copilot in VS Code and from Foundry agents.
+
+## Repository map
+
+| File | Reader | Role |
+|---|---|---|
+| `AGENTS.md` | agent, every request | Short. Routing table plus the ten principles as one-liners. |
+| `docs/PRINCIPLES.md` | agent, when coding | The non-negotiables, with rationale and enforcement. |
+| `docs/SPEC.md` | agent, per task | The full technical requirement. |
+| `TASKS.md` | agent, every task | Ordered backlog and shared state. The only file with churn. |
+| `docs/RUNBOOK.md` | human / ops | Tenant quirks, environment findings, operational facts. |
+| `Makefile` | both | `make check` is the gate. |
+
+`.github/agents/*.agent.md` define three subagents: `azure-auth`, `kql-safety`, and
+`spec-auditor`.
+
+## Quick start
+
+```bash
+uv sync
+make check        # will fail until T-01 creates src/ - that is expected
+```
+
+Then complete H-01 in `TASKS.md`, and start on T-01.
+
+---
+
 # Driving this repo autonomously
 
-No framework. Four files plus a Makefile do the work Spec Kit would have done:
+No framework. Five files plus a Makefile do the work a spec-driven-development
+toolkit would have done. The mechanism that makes unattended work possible is not
+the task list — it is `make check` plus recorded fixtures, which let the agent
+determine for itself whether it is finished, without you and without Azure.
 
-| File | Spec Kit equivalent | Role |
-|---|---|---|
+---
+
+|---|---|
 | `AGENTS.md` | agent instructions | Loaded every request. Short on purpose. |
 | `docs/PRINCIPLES.md` | `constitution.md` | Non-negotiables with rationale and enforcement. |
 | `docs/SPEC.md` | `spec.md` + `plan.md` | The requirement. |

@@ -6,10 +6,10 @@ Read-only MCP server that answers questions about Azure API Management. Python 3
 
 | Need | Read |
 |---|---|
-| Non-negotiable rules | `docs/PRINCIPLES.md` — **read before writing any code** |
+| Non-negotiable rules, with rationale | `docs/PRINCIPLES.md` — **read before writing any code** |
 | What to build, in order | `TASKS.md` |
 | Full technical spec | `docs/SPEC.md` |
-| How this repo is driven | `docs/AUTONOMY.md` |
+| Tenant quirks, environment findings | `docs/RUNBOOK.md` |
 
 ## The loop
 
@@ -29,15 +29,20 @@ If `make check` fails, you are not done. Fix it and re-run. Do not report a task
 - **Never call live Azure.** Tests run against recorded fixtures in `tests/fixtures/`. If you need a fixture that does not exist, add a recorder entry in `scripts/record_fixtures.py` and stop — a human runs it.
 - **Update `TASKS.md`** — tick the checkboxes as you complete them. That file is the shared state between sessions.
 
-## Hard rules (full rationale in docs/PRINCIPLES.md)
+## The ten principles
 
-1. All downstream Azure calls go through `credential_for(ctx, scope)`. No exceptions, no direct credential construction.
-2. Never construct Azure SDK clients at module import time. Per-request only.
-3. Every cache key includes the caller's `oid`. The one documented exception is the API index (`docs/PRINCIPLES.md` §3).
-4. This server is read-only. No POST, PUT, PATCH, or DELETE against ARM. Ever.
-5. Never retrieve secrets — no `listSecrets`, `listValue`, `listKeys`, `users/token`. Not even to redact them afterwards.
-6. No user input is ever string-interpolated into KQL. Bound parameters only.
-7. Errors are returned inside the tool result, never raised as protocol errors.
+Summary only. Numbering matches `docs/PRINCIPLES.md` exactly — read that file for rationale, violation examples, and which test enforces each one.
+
+1. **Credential seam.** All downstream calls go through `credential_for(ctx, scope)`. Never construct a credential elsewhere.
+2. **Explicit scope.** Always pass `ARM_SCOPE` or `LOGS_SCOPE`. No defaults, even though v1 ignores it.
+3. **Cache keys include `oid`.** Always. The API index is the one documented exception.
+4. **Read-only.** No POST, PUT, PATCH, or DELETE against a management endpoint.
+5. **Never retrieve secrets.** No `listSecrets`, `listValue`, `listKeys`, `users/token`. Not even to redact afterwards.
+6. **No user input in KQL.** Bound parameters only. Never interpolation.
+7. **Per-request SDK clients.** Never module-level or startup singletons.
+8. **Errors are results, not exceptions.** Never raise out of a tool handler.
+9. **Label untrusted content.** API descriptions and policy text reach the model as data, not instructions.
+10. **Audit every tool call.** Caller `oid`, tool, arguments, outcome. Never response bodies.
 
 ## Commands
 
