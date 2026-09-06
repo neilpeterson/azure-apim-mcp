@@ -4,6 +4,67 @@ Read-only MCP server that answers questions about Azure API Management: API inve
 and configuration, OpenAPI specs, semantic search across the API surface, service health,
 metrics, and gateway logs. Consumed from GitHub Copilot in VS Code and from Foundry agents.
 
+Azure already provides a broad MCP server, so the natural first question is whether a
+dedicated APIM server is necessary. The two are complementary: Azure MCP Server provides
+general Azure coverage, while `apim-mcp` provides a constrained, APIM-specific surface.
+
+## Why not just use the Azure MCP Server?
+
+[Azure MCP Server](https://learn.microsoft.com/en-us/azure/developer/azure-mcp-server/tools)
+covers 60+ Azure service namespaces. **API Management is not one of them** (verified
+against the tool catalogue, 2026-08-11). It covers part of the telemetry and health
+surface, and none of the APIM control plane.
+
+| Capability | Azure MCP Server | apim-mcp |
+|---|---|---|
+| Metrics | ✅ `monitor` | ✅ Curated, APIM-specific |
+| Gateway logs | ⚠️ Generic KQL — you write the query | ✅ Parameterized, injection-safe |
+| Service health | ⚠️ `resourcehealth` only | ✅ Plus `/networkstatus`, cert expiry |
+| List APIM instances | ⚠️ Via `group` / `subscription` | ✅ |
+| APIs, operations, products, backends | ❌ | ✅ |
+| OpenAPI / Swagger export | ❌ | ✅ |
+| Semantic search across API surface | ❌ | ✅ |
+| Policy XML inspection | ❌ | ✅ |
+| Error summarization | ❌ | ✅ |
+
+### The architectural difference
+
+Azure MCP Server authenticates as **your** identity (`az login` or a managed
+identity), so RBAC is enforced per user. That works well locally. Deployed remotely
+on a shared managed identity it doesn't, because free-form KQL against a workspace
+the identity can fully read is a pivot point — see `docs/PRINCIPLES.md` §6. It is
+also not read-only by default; that requires `--read-only`.
+
+`apim-mcp` is read-only by construction, secret-blind by RBAC design, and exposes
+only parameterized queries against a fixed table.
+
+### Use both
+
+Azure MCP Server is genuinely useful **locally**, where it runs as you:
+
+```jsonc
+// .vscode/mcp.json
+{
+  "servers": {
+    "azure": {
+      "command": "npx",
+      "args": ["-y", "@azure/mcp@latest", "server", "start",
+               "--namespace", "monitor",
+               "--namespace", "resourcehealth",
+               "--read-only"]
+    }
+  }
+}
+```
+
+Handy for ad-hoc telemetry questions during development, and for resolving H-04
+(pinning the `ApiManagementGatewayLogs` schema) and H-05 (metric availability).
+
+> **Recheck periodically.** Azure MCP Server adds namespaces often. Run
+> `azmcp tools list`; if an `apim` namespace appears, reassess tool Groups A, B,
+> and D. Group C (the search index) is unlikely to be covered — it is an
+> opinionated index build, not an API wrapper.
+
 ## Repository map
 
 | File | Reader | Role |

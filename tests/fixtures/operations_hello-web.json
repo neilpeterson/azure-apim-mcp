@@ -1,0 +1,20 @@
+{
+  "value": [
+    {
+      "id": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-fixture/providers/Microsoft.ApiManagement/service/apim-fixture/apis/hello-web/operations/hello-web",
+      "type": "Microsoft.ApiManagement/service/apis/operations",
+      "name": "hello-web",
+      "properties": {
+        "displayName": "hello-web",
+        "method": "GET",
+        "urlTemplate": "/*",
+        "templateParameters": [],
+        "description": "",
+        "responses": [],
+        "policies": null,
+        "effectivePath": null
+      }
+    }
+  ],
+  "count": 1
+}

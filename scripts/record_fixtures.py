@@ -65,16 +65,25 @@ def sanitise(obj: Any, *, real_sub: str, real_service: str, real_rg: str) -> Any
                 out[k] = sanitise(v, real_sub=real_sub, real_service=real_service, real_rg=real_rg)
         return out
     if isinstance(obj, list):
-        return [sanitise(i, real_sub=real_sub, real_service=real_service, real_rg=real_rg) for i in obj]
+        return [
+            sanitise(i, real_sub=real_sub, real_service=real_service, real_rg=real_rg) for i in obj
+        ]
     if isinstance(obj, str):
         s = obj.replace(real_sub, FAKE_SUB)
         s = s.replace(real_service, FAKE_SERVICE)
         s = s.replace(real_rg, FAKE_RG)
         s = SAS.sub(r"\1=[SCRUBBED]", s)
         s = BEARER.sub("Bearer [SCRUBBED]", s)
-        s = GUID.sub(FAKE_TENANT, s)
+        # FAKE_SUB is itself GUID-shaped, so the generic sweep must leave it
+        # alone - otherwise the subscription ID placeholder just inserted
+        # above gets immediately overwritten with the generic tenant one.
+        s = GUID.sub(lambda m: m.group(0) if m.group(0) == FAKE_SUB else FAKE_TENANT, s)
         return s
     return obj
+
+
+class FixtureFetchError(RuntimeError):
+    """A response was not JSON we can sanitise and record."""
 
 
 async def fetch(client: httpx.AsyncClient, token: str, url: str, params: dict[str, str]) -> Any:
@@ -85,7 +94,14 @@ async def fetch(client: httpx.AsyncClient, token: str, url: str, params: dict[st
         timeout=60.0,
     )
     r.raise_for_status()
-    return r.json()
+    try:
+        return r.json()
+    except json.JSONDecodeError as exc:
+        raise FixtureFetchError(
+            f"non-JSON response (status {r.status_code}, "
+            f"content-type {r.headers.get('content-type')!r}, "
+            f"body starts {r.text[:120]!r})"
+        ) from exc
 
 
 async def main() -> int:
@@ -112,6 +128,11 @@ async def main() -> int:
         ("subscriptions_list", "/subscriptions", {}),
         ("policy_global", "/policies/policy", {"format": "rawxml"}),
         ("network_status", "/networkstatus", {}),
+        (
+            "resource_health",
+            "/providers/Microsoft.ResourceHealth/availabilityStatuses/current",
+            {"api-version": "2023-07-01-preview"},
+        ),
     ]
 
     async with httpx.AsyncClient() as client:
@@ -122,6 +143,9 @@ async def main() -> int:
             except httpx.HTTPStatusError as exc:
                 print(f"  skip {name}: HTTP {exc.response.status_code}", file=sys.stderr)
                 continue
+            except FixtureFetchError as exc:
+                print(f"  skip {name}: {exc}", file=sys.stderr)
+                continue
 
             clean = sanitise(raw, real_sub=real_sub, real_service=real_service, real_rg=real_rg)
             (FIXTURES / f"{name}.json").write_text(json.dumps(clean, indent=2) + "\n")
@@ -130,9 +154,13 @@ async def main() -> int:
             # Per-API detail for the first three APIs only — enough to exercise
             # paging and operation indexing without committing a huge corpus.
             if name == "apis_list":
-                for api in (clean.get("value") or [])[:3]:
+                for idx, api in enumerate((clean.get("value") or [])[:3]):
                     api_id = api["name"]
-                    ops = await fetch(client, token, f"{url}/{api_id}/operations", {})
+                    try:
+                        ops = await fetch(client, token, f"{url}/{api_id}/operations", {})
+                    except (httpx.HTTPStatusError, FixtureFetchError) as exc:
+                        print(f"  skip operations_{api_id}: {exc}", file=sys.stderr)
+                        continue
                     ops_clean = sanitise(
                         ops, real_sub=real_sub, real_service=real_service, real_rg=real_rg
                     )
@@ -140,6 +168,30 @@ async def main() -> int:
                         json.dumps(ops_clean, indent=2) + "\n"
                     )
                     print(f"  wrote operations_{api_id}.json")
+
+                    # Export-link response for the first API only. The link
+                    # itself points at a real SAS-secured blob and expires in
+                    # five minutes, so there is nothing durable to record
+                    # beyond the shape of this envelope — sanitise() scrubs
+                    # the SAS query out of the returned link.
+                    if idx == 0:
+                        try:
+                            export = await fetch(
+                                client,
+                                token,
+                                f"{url}/{api_id}",
+                                {"export": "true", "format": "openapi+json-link"},
+                            )
+                        except (httpx.HTTPStatusError, FixtureFetchError) as exc:
+                            print(f"  skip api_export_{api_id}: {exc}", file=sys.stderr)
+                            continue
+                        export_clean = sanitise(
+                            export, real_sub=real_sub, real_service=real_service, real_rg=real_rg
+                        )
+                        (FIXTURES / f"api_export_{api_id}.json").write_text(
+                            json.dumps(export_clean, indent=2) + "\n"
+                        )
+                        print(f"  wrote api_export_{api_id}.json")
 
     await cred.close()
 

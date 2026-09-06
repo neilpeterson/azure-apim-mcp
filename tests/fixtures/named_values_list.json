@@ -1,0 +1,15 @@
+{
+  "value": [
+    {
+      "id": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-fixture/providers/Microsoft.ApiManagement/service/apim-fixture/namedValues/697d09db4634610214af3547",
+      "type": "Microsoft.ApiManagement/service/namedValues",
+      "name": "697d09db4634610214af3547",
+      "properties": {
+        "displayName": "Logger-Credentials--697d09db4634610214af3548",
+        "tags": null,
+        "secret": true
+      }
+    }
+  ],
+  "count": 1
+}

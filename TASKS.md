@@ -23,10 +23,10 @@ Nothing else starts until this is green. The harness is what lets every later ta
 Create the package layout from §12. Configure `ruff`, `mypy --strict`, and `pytest` with `asyncio_mode = "auto"`. Add a trivial passing test so the gate is meaningfully green.
 
 **Done when:**
-- [ ] `make check` passes on an otherwise empty project
-- [ ] `make fmt` is idempotent
-- [ ] CI workflow runs `make check` on push
-- [ ] `mypy --strict src/` reports zero errors
+- [x] `make check` passes on an otherwise empty project
+- [x] `make fmt` is idempotent
+- [x] CI workflow runs `make check` on push
+- [x] `mypy --strict src/` reports zero errors
 
 ---
 
@@ -38,12 +38,12 @@ Create the package layout from §12. Configure `ruff`, `mypy --strict`, and `pyt
 Write the AST/grep-based tests named in `docs/PRINCIPLES.md`. They will pass trivially on an empty `src/` — that is fine and expected. They exist so that the first violation fails loudly rather than being discovered in review.
 
 **Done when:**
-- [ ] `test_no_direct_credential_construction` implemented (AST scan for credential class instantiation outside `auth/credentials.py`)
-- [ ] `test_cache_keys_include_oid` implemented (cache decorators must have an `oid`-derived param; index module allowlisted)
-- [ ] `test_all_tools_are_readonly` implemented (stub against empty registry for now)
-- [ ] `test_no_secret_actions` implemented (grep `listSecrets`, `listValue`, `listKeys`, `users/token`)
-- [ ] `test_no_module_level_azure_clients` implemented
-- [ ] All five pass
+- [x] `test_no_direct_credential_construction` implemented (AST scan for credential class instantiation outside `auth/credentials.py`)
+- [x] `test_cache_keys_include_oid` implemented (cache decorators must have an `oid`-derived param; index module allowlisted)
+- [x] `test_all_tools_are_readonly` implemented (stub against empty registry for now)
+- [x] `test_no_secret_actions` implemented (grep `listSecrets`, `listValue`, `listKeys`, `users/token`)
+- [x] `test_no_module_level_azure_clients` implemented
+- [x] All five pass
 
 ---
 
@@ -56,10 +56,10 @@ Write the AST/grep-based tests named in `docs/PRINCIPLES.md`. They will pass tri
 Pydantic `Settings` covering every variable in the §5.3 table. `APIM_SERVICES` parses to a list of models with `alias`, `resource_id`, `log_analytics_workspace_id`. Fail fast with a message naming the missing variable.
 
 **Done when:**
-- [ ] Missing required var raises at import with the variable name in the message
-- [ ] `APIM_SERVICES` JSON parses; malformed JSON gives a readable error
-- [ ] Resource IDs are validated against the ARM resource-ID shape
-- [ ] Alias lookup is case-insensitive and unknown alias raises a typed error listing valid aliases
+- [x] Missing required var raises at import with the variable name in the message
+- [x] `APIM_SERVICES` JSON parses; malformed JSON gives a readable error
+- [x] Resource IDs are validated against the ARM resource-ID shape
+- [x] Alias lookup is case-insensitive and unknown alias raises a typed error listing valid aliases
 
 ---
 
@@ -72,10 +72,10 @@ Implement the seven error kinds with their message templates. Implement the list
 The `access_denied` message must carry a `# OBO:` comment noting it changes meaning under on-behalf-of (`docs/PRINCIPLES.md` §8).
 
 **Done when:**
-- [ ] Each of the seven `kind` values has a test asserting the message contains an actionable next step
-- [ ] `test_truncation_sets_hint` — oversized payload truncates, sets `truncated: true`, and names a real parameter
-- [ ] Markdown and JSON renderers produce equivalent data for the same input
-- [ ] `# OBO:` comment present on the `access_denied` template
+- [x] Each of the seven `kind` values has a test asserting the message contains an actionable next step
+- [x] `test_truncation_sets_hint` — oversized payload truncates, sets `truncated: true`, and names a real parameter
+- [x] Markdown and JSON renderers produce equivalent data for the same input
+- [x] `# OBO:` comment present on the `access_denied` template
 
 ---
 
@@ -88,12 +88,12 @@ The `access_denied` message must carry a `# OBO:` comment noting it changes mean
 **`ctx` and `scope` are required parameters with no defaults, even though v1 uses neither.** Include the docstring from §5.1 explaining why, verbatim.
 
 **Done when:**
-- [ ] `credential_for` signature is `(ctx: CallContext, scope: str)`, both positional, no defaults
-- [ ] `ARM_SCOPE` and `LOGS_SCOPE` constants defined
-- [ ] `test_credential_for_requires_scope` — calling without scope is a `TypeError`
-- [ ] `CallContext` is immutable (frozen model)
-- [ ] `tests/test_principles.py::test_no_direct_credential_construction` still passes
-- [ ] Docstring explains the OBO migration rationale
+- [x] `credential_for` signature is `(ctx: CallContext, scope: str)`, both positional, no defaults
+- [x] `ARM_SCOPE` and `LOGS_SCOPE` constants defined
+- [x] `test_credential_for_requires_scope` — calling without scope is a `TypeError`
+- [x] `CallContext` is immutable (frozen model)
+- [x] `tests/test_principles.py::test_no_direct_credential_construction` still passes
+- [x] Docstring explains the OBO migration rationale
 
 ---
 
@@ -104,12 +104,12 @@ The `access_denied` message must carry a `# OBO:` comment noting it changes mean
 `get()` and `list_all()` only. **No mutating methods** — this is the enforcement point for `docs/PRINCIPLES.md` §4. Default `api-version=2024-05-01`, per-call override. Follow `nextLink` up to `max_pages`. Retry 429/5xx with `tenacity`, honouring `Retry-After`. Map status codes to the T-04 taxonomy.
 
 **Done when:**
-- [ ] No method issues POST, PUT, PATCH, or DELETE
-- [ ] `test_follows_next_link` — three-page fixture yields all items
-- [ ] `test_respects_max_pages` — sets `truncated`, does not loop forever
-- [ ] `test_honours_retry_after` — 429 with `Retry-After: 2` waits ~2s (use a fake clock)
-- [ ] `test_403_returns_access_denied` — 403 becomes a result, not an exception
-- [ ] Client constructed per call, not at module scope
+- [x] No method issues POST, PUT, PATCH, or DELETE
+- [x] `test_follows_next_link` — three-page fixture yields all items
+- [x] `test_respects_max_pages` — sets `truncated`, does not loop forever
+- [x] `test_honours_retry_after` — 429 with `Retry-After: 2` waits ~2s (use a fake clock)
+- [x] `test_403_returns_access_denied` — 403 becomes a result, not an exception
+- [x] Client constructed per call, not at module scope
 
 ---
 
@@ -122,11 +122,11 @@ The recorder is run **by a human** against a real non-prod instance; it writes s
 Sanitisation is mandatory: strip subscription GUIDs, tenant IDs, hostnames, and any `Authorization` header from recorded payloads before writing.
 
 **Done when:**
-- [ ] `scripts/record_fixtures.py` records: service GET, apis list (paged), operations list, policy GET, export link response, resource health, network status
-- [ ] Recorded payloads are sanitised — `test_fixtures_contain_no_real_identifiers` asserts no GUID matching the real subscription pattern
-- [ ] `arm_client` pytest fixture replays from `tests/fixtures/` with zero network access
-- [ ] A test that attempts a real network call fails loudly (block sockets in `conftest.py`)
-- [ ] `tests/fixtures/README.md` documents how to re-record
+- [x] `scripts/record_fixtures.py` records: service GET, apis list (paged), operations list, policy GET, export link response, resource health, network status
+- [x] Recorded payloads are sanitised — `test_fixtures_contain_no_real_identifiers` asserts no GUID matching the real subscription pattern
+- [x] `arm_client` pytest fixture replays from `tests/fixtures/` with zero network access
+- [x] A test that attempts a real network call fails loudly (block sockets in `conftest.py`)
+- [x] `tests/fixtures/README.md` documents how to re-record
 
 > **[H] Human step:** run `make fixtures` against a non-prod APIM instance once T-07 lands. Agents cannot do this.
 
@@ -136,16 +136,46 @@ Sanitisation is mandatory: strip subscription GUIDs, tenant IDs, hostnames, and 
 **Depends on:** T-03, T-04 · **Spec:** §4.4
 **Files:** `src/apim_mcp/auth/middleware.py`, `tests/test_jwt_middleware.py`
 
-Validate in order: bearer present, signature against cached JWKS, `iss`, `aud` (exactly one configured value — **never a list**), `exp`/`nbf` with ≤60s skew, `roles` contains the required role. Stash claims for the audit log. Add `/healthz` and `/readyz` outside auth.
+Validate in order: bearer present, signature against cached JWKS, `iss`, `aud` (exactly one configured value — **never a list** — a URL per §4.3/§5.3, not an `api://` string), `exp`/`nbf` with ≤60s skew, `roles` contains the required role. Stash claims for the audit log. Add `/healthz` and `/readyz` outside auth.
 
 The middleware must make the **raw inbound token** retrievable inside tool handlers via `ContextVar`, even though v1 does not use it — Appendix A and B both need it.
 
 **Done when:**
-- [ ] Table-driven test covers: no header, malformed, expired, wrong `iss`, wrong `aud`, missing `roles`, unknown `kid`, valid
-- [ ] `test_aud_is_not_a_list` — configuring multiple audiences is rejected at startup
-- [ ] JWKS cache refreshes on unknown `kid`, rate-limited to once per 60s
-- [ ] `test_raw_token_available_in_handler` — a handler can read the inbound token
-- [ ] `/healthz` and `/readyz` return 200 without a token; `/readyz` is **not** gated on index build
+- [x] Table-driven test covers: no header, malformed, expired, wrong `iss`, wrong `aud`, missing `roles`, unknown `kid`, valid
+- [x] `test_aud_is_not_a_list` — configuring multiple audiences is rejected at startup
+- [x] JWKS cache refreshes on unknown `kid`, rate-limited to once per 60s
+- [x] `test_raw_token_available_in_handler` — a handler can read the inbound token
+- [x] `/healthz` and `/readyz` return 200 without a token; `/readyz` is **not** gated on index build
+
+---
+
+### T-08.1 — OAuth protected-resource discovery
+**Depends on:** T-08 · **Spec:** §10.2, §4.3
+**Files:** `src/apim_mcp/auth/middleware.py`, `src/apim_mcp/server.py`, `tests/test_jwt_middleware.py`, `tests/test_telemetry.py`
+
+Implement RFC 9728 protected-resource metadata so VS Code (and any MCP client following the authorization spec) can discover the Entra tenant without a hand-configured header, per the exact JSON shape and endpoint-path rules in §10.2.
+
+**Done when:**
+- [x] `GET /.well-known/oauth-protected-resource` returns `resource` (== `MCP_SERVER_AUDIENCE` exactly), `authorization_servers` (v2.0 issuer), `scopes_supported`, `bearer_methods_supported`
+- [x] Same document also served at the path-suffixed route (`/.well-known/oauth-protected-resource/mcp`)
+- [x] Both discovery routes are unauthenticated; every other route (including `/authorize`, `/token`, `/register` if a client probes them) is not — no OAuth-proxy endpoints are implemented (§4.3)
+- [x] Every `401` response's `WWW-Authenticate` header includes `resource_metadata="<url>"` pointing at the path-suffixed route
+- [x] `test_oauth_protected_resource_*` covers the document shape and both paths; a 401 assertion covers the `resource_metadata` hint
+
+---
+
+### T-08.2 — Authorization-server metadata mirror (VS Code discovery-bug workaround)
+**Depends on:** T-08.1 · **Spec:** §10.2.1
+**Files:** `src/apim_mcp/auth/middleware.py`, `src/apim_mcp/server.py`, `tests/test_jwt_middleware.py`, `tests/test_telemetry.py`
+
+Work around a known VS Code MCP client bug (drops the path component of an authorization-server issuer URL when building its own discovery request, so Entra's `.../<tenant>/v2.0/.well-known/...` never resolves and the client falls back to treating this server as its own authorization server). Mirror Entra's real, unmodified OIDC discovery document at this server's own well-known paths — never a fabricated document, never `/authorize`/`/token`/`/register`.
+
+**Done when:**
+- [x] `AuthorizationServerMetadataCache` fetches and caches `https://login.microsoftonline.com/<tenant-id>/v2.0/.well-known/openid-configuration` verbatim, with an injectable transport for tests
+- [x] `GET /.well-known/oauth-authorization-server` and `GET /.well-known/openid-configuration` both return the cached document unmodified, unauthenticated
+- [x] A fetch failure returns `503`, never an unhandled exception (§8)
+- [x] No `/authorize`, `/token`, or `/register` handler is added — the mirrored document's own endpoint URLs still point at `login.microsoftonline.com`
+- [x] Tests cover: both paths bypass auth, both return the mocked document verbatim (and never include a `registration_endpoint`), and a fetch failure yields `503`
 
 ---
 
@@ -158,11 +188,11 @@ FastMCP app, streamable HTTP stateless JSON at `/mcp`, middleware wired. Tool re
 Startup permission canary (§4.2): resolve the UAMI's effective permissions per configured scope and warn if any `listSecrets`-family action appears.
 
 **Done when:**
-- [ ] Server starts and responds to MCP `initialize`
-- [ ] `test_every_tool_emits_audit_event` iterates the registry
-- [ ] Audit event contains all §9 fields; response bodies absent
-- [ ] `test_stray_exception_becomes_upstream_error` and logs at ERROR
-- [ ] Permission canary runs at startup and logs its findings
+- [x] Server starts and responds to MCP `initialize`
+- [x] `test_every_tool_emits_audit_event` iterates the registry
+- [x] Audit event contains all §9 fields; response bodies absent
+- [x] `test_stray_exception_becomes_upstream_error` and logs at ERROR
+- [x] Permission canary runs at startup and logs its findings
 
 ---
 
@@ -177,11 +207,11 @@ Startup permission canary (§4.2): resolve the UAMI's effective permissions per 
 `apim_get_service_health` fans out to five sources and each must be independently fault-tolerant — one failure yields `status: "unavailable"` for that section, not a failed tool.
 
 **Done when:**
-- [ ] Three tools registered with correct annotations
-- [ ] `test_health_partial_failure` — one sub-call 500s, others still return
-- [ ] `test_cert_expiry_computed` — `daysUntilExpiry` correct against a fixture
-- [ ] `encodedCertificate` and certificate passwords never appear in output
-- [ ] All three return within 60s against fixtures
+- [x] Three tools registered with correct annotations
+- [x] `test_health_partial_failure` — one sub-call 500s, others still return
+- [x] `test_cert_expiry_computed` — `daysUntilExpiry` correct against a fixture
+- [x] `encodedCertificate` and certificate passwords never appear in output
+- [x] All three return within 60s against fixtures
 
 > **MILESTONE — stop and verify manually.** Deploy, point VS Code at it, confirm the OAuth flow works and the three tools are callable from Copilot. Do not proceed until this is real.
 
@@ -376,7 +406,7 @@ The ten seeded questions from §11.3, in the `<evaluation><qa_pair>` format, wit
 **Depends on:** T-10 · **Spec:** §10.3
 **Files:** `docs/RUNBOOK.md`
 
-Create the project connection with `--auth-type user-entra-token --audience api://apim-mcp`. Attach as an `mcp` tool with `require_approval: "never"`.
+Create the project connection with `--auth-type user-entra-token --audience https://<app>.<region>.azurecontainerapps.io/mcp` (the server's Application ID URI, §4.3 — same value as `--target`, not an `api://` string). Attach as an `mcp` tool with `require_approval: "never"`.
 
 **Done when:**
 - [ ] Connection created and an agent successfully calls a tool
