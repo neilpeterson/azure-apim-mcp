@@ -161,19 +161,24 @@ For Log Analytics, assign the built-in **Log Analytics Reader** role on the work
 
 Create an Entra app registration for the server (`apim-mcp-server`):
 
-- **Expose an API** with Application ID URI `api://apim-mcp` and a delegated scope `Mcp.Tools.Read`.
+- **Manifest**: set `"requestedAccessTokenVersion": 2` under the `api` object — required before an HTTPS-style Application ID URI can be set, and before the `resource`-parameter matching below can work. New app registrations created via the current portal default to this already; verify, don't assume.
+- **Expose an API** with **Application ID URI set to the server's own canonical URL** — e.g. `http://localhost:8000/mcp` locally, `https://<app>.<region>.azurecontainerapps.io/mcp` once deployed — **not** an arbitrary `api://` string. This is not a style preference: the MCP authorization spec has clients send a `resource=<canonical server URL>` parameter (RFC 8707), and Entra rejects the token request (`AADSTS9010010`) unless that value matches the registered Application ID URI character-for-character (scheme, host, path, no trailing slash). `identifierUris` is a list — add **both** the local and deployed URLs so the same app registration keeps working in either environment; do not create a second server app registration per environment.
+- Add a delegated scope `Mcp.Tools.Read` with **Who can consent = "Admins and users"** (not "Admins only") — its fully-qualified name becomes `<application-id-uri>/Mcp.Tools.Read` and updates automatically if the Application ID URI changes. Setting the consent type to "Admins and users" avoids requiring a Global Administrator to grant tenant-wide consent; the pre-authorized client application (below) suppresses the consent prompt for known clients regardless.
 - **Define an app role** `Apim.Read` with allowed member types `Users/Groups`.
 - On the corresponding enterprise application, set **Assignment required = Yes**.
 - Assign your Entra security group to the `Apim.Read` app role.
 
-Create a second app registration for clients (`apim-mcp-client`), pre-authorized on the server app for the `Mcp.Tools.Read` scope so users are not prompted to consent individually.
+Create a second app registration for clients (`apim-mcp-client`), pre-authorized on the server app for the `Mcp.Tools.Read` scope so users are not prompted to consent individually. On `apim-mcp-server` → **Expose an API** → **Authorized client applications**, additionally add `apim-mcp-client`'s client ID with the `Mcp.Tools.Read` scope checked — this is a stronger guarantee than delegated-permission admin consent alone and is what actually suppresses the consent prompt for a known client. On `apim-mcp-client` → **Authentication** → add redirect URIs: `http://localhost` (any-port wildcard for MSAL's local loopback flow), `http://127.0.0.1:33418`, and `https://vscode.dev/redirect`.
 
-**Two blockers to verify before building on this** (both were flagged as risks and neither has been confirmed in your tenant):
+**`MCP_SERVER_AUDIENCE` (§5.3) holds this URL** for the `resource` field in the protected-resource metadata document. **`MCP_SERVER_APP_ID` (§5.3) holds the server app's Application (client) ID** (a GUID) — Entra v2 tokens always set `aud` to this value, not the URI, and `TokenValidationMiddleware`'s `aud` check (§4.4) validates against it.
+
+**Blockers to verify before building on this** (flagged as risks, confirm in your tenant before relying on them):
 
 1. **Assigning a *group* to an app role requires Entra ID P1 or P2.** Individual user assignment works on the free tier. If P1 isn't available, the fallback is individual user assignments, or a `groups` claim check — but the `groups` claim has a ~200-membership overage problem where Entra sends a Graph pointer instead of the list, which you would then have to resolve. Prefer app roles.
 2. **"Assignment required = Yes" forces admin consent** on the app's permissions even in tenants that otherwise permit user consent. Test this on a throwaway app registration first.
+3. **Do not implement an OAuth proxy** (a same-origin `/oauth/authorize`, `/oauth/token`, mock `/oauth/register` that forwards to Entra behind the scenes) even though several community write-ups recommend it to work around Entra's lack of Dynamic Client Registration (RFC 7591) support. A mock DCR endpoint that accepts any registration and hands back a client ID enables a documented confused-deputy attack (an attacker registers their own client through your server, crafts a phishing link, and rides an already-consented Entra session cookie to obtain tokens with your server's authorized access). The URL-shaped Application ID URI + pre-authorized client application above is Microsoft's documented, proxy-free path — prefer it.
 
-If either blocks you, say so and stop rather than silently downgrading to an unauthenticated server.
+If any of 1–2 blocks you, say so and stop rather than silently downgrading to an unauthenticated server.
 
 ### 4.4 Token validation middleware
 
@@ -184,7 +189,7 @@ Validate, in order:
 1. `Authorization: Bearer <jwt>` present → else 401 with `WWW-Authenticate: Bearer`.
 2. Signature against JWKS from `https://login.microsoftonline.com/{TENANT_ID}/discovery/v2.0/keys`. Cache the JWKS, honour `kid`, refresh on unknown `kid` with a rate limit.
 3. `iss` == `https://login.microsoftonline.com/{TENANT_ID}/v2.0`
-4. `aud` == the server app's client ID or `api://apim-mcp` — **accept exactly one configured value**. Do not accept a list. Do not skip this check; it is what stops a token minted for a different resource being replayed at you.
+4. `aud` == the server app's Application (client) ID (`MCP_SERVER_APP_ID`, §5.3 — a GUID). Entra v2 tokens always set `aud` to the app ID, not the Application ID URI, regardless of how the client requested the token. **Accept exactly one configured value.** Do not accept a list. Do not skip this check; it is what stops a token minted for a different resource being replayed at you.
 5. `exp` / `nbf` with ≤60s clock skew.
 6. `roles` claim contains `Apim.Read` → else 403.
 
@@ -209,6 +214,7 @@ ARM_SCOPE = "https://management.azure.com/.default"
 LOGS_SCOPE = "https://api.loganalytics.io/.default"
 
 _mi: ManagedIdentityCredential | None = None
+
 
 def credential_for(ctx: CallContext, scope: str) -> AsyncTokenCredential:
     """Return the credential to use for a downstream call.
@@ -235,11 +241,12 @@ def credential_for(ctx: CallContext, scope: str) -> AsyncTokenCredential:
 
 ```python
 class ArmClient:
-    async def get(self, resource_id: str, *, api_version: str,
-                  params: dict | None = None) -> dict: ...
-    async def list_all(self, resource_id: str, *, api_version: str,
-                       params: dict | None = None,
-                       max_pages: int = 20) -> list[dict]: ...
+    async def get(
+        self, resource_id: str, *, api_version: str, params: dict | None = None
+    ) -> dict: ...
+    async def list_all(
+        self, resource_id: str, *, api_version: str, params: dict | None = None, max_pages: int = 20
+    ) -> list[dict]: ...
 ```
 
 Requirements:
@@ -257,7 +264,8 @@ All configuration via environment variables, validated with a Pydantic `Settings
 |---|---|---|
 | `AZURE_TENANT_ID` | yes | |
 | `AZURE_CLIENT_ID` | yes | UAMI client ID |
-| `MCP_SERVER_AUDIENCE` | yes | e.g. `api://apim-mcp` |
+| `MCP_SERVER_AUDIENCE` | yes | The server's Application ID URI (§4.3) — a URL, e.g. `http://localhost:8000/mcp` locally or `https://<app>.<region>.azurecontainerapps.io/mcp` deployed. Not an `api://` string. Used for the `resource` field in `/.well-known/oauth-protected-resource`. |
+| `MCP_SERVER_APP_ID` | yes | The server app registration's Application (client) ID (a GUID). Entra v2 tokens always set `aud` to the app ID, not the Application ID URI — the middleware validates `aud` against this value. |
 | `MCP_REQUIRED_ROLE` | yes | default `Apim.Read` |
 | `APIM_SERVICES` | yes | JSON array of `{alias, resourceId, logAnalyticsWorkspaceId?}` |
 | `INDEX_TTL_SECONDS` | no | default `900` |
@@ -473,9 +481,9 @@ class OperationIndexEntry(BaseModel):
     operation_description: str | None
     method: str
     url_template: str
-    parameter_names: list[str]     # template + query + header params
+    parameter_names: list[str]  # template + query + header params
     schema_property_names: list[str]  # from the OpenAPI export, depth-limited
-    search_text: str               # composed, see 7.3
+    search_text: str  # composed, see 7.3
 ```
 
 ### 7.2 Build pipeline
@@ -635,7 +643,97 @@ Health endpoints outside MCP auth: `/healthz` (liveness) and `/readyz` (ready on
 }
 ```
 
-VS Code performs the OAuth flow against the server's protected-resource metadata. Implement `/.well-known/oauth-protected-resource` per the MCP authorization spec, pointing at your Entra tenant as authorization server, so discovery works without hand-configured headers.
+VS Code performs the OAuth flow against the server's protected-resource
+metadata. Implement `GET /.well-known/oauth-protected-resource` per
+[RFC 9728](https://www.rfc-editor.org/rfc/rfc9728) and the MCP
+authorization spec, pointing at your Entra tenant as authorization server,
+so discovery works without hand-configured headers. This endpoint (and it
+alone) is unauthenticated — every other route requires a valid bearer
+token (§4.4).
+
+**Exact response shape:**
+
+```json
+{
+  "resource": "https://<app>.<region>.azurecontainerapps.io/mcp",
+  "authorization_servers": ["https://login.microsoftonline.com/<tenant-id>/v2.0"],
+  "scopes_supported": ["Mcp.Tools.Read"],
+  "bearer_methods_supported": ["header"]
+}
+```
+
+- `resource` must equal `MCP_SERVER_AUDIENCE` (§4.3, §5.3) exactly —
+  character-for-character, no trailing slash.
+- `authorization_servers` must be the **v2.0** issuer
+  (`.../v2.0`), matching the `iss` the middleware validates (§4.4). The v1
+  issuer (`https://sts.windows.net/<tenant-id>/`) does not line up with the
+  v2.0 authorization-server metadata clients discover from it.
+- `scopes_supported` is the delegated scope from §4.3 — currently omitted
+  from earlier drafts of this spec; add it so clients that don't already
+  know the required scope can discover it.
+
+**Serve the document at both the root path and the resource's own path**,
+per RFC 9728's default discovery algorithm: for a resource at
+`https://host/mcp`, a spec-compliant client may look at
+`https://host/.well-known/oauth-protected-resource/mcp` (path-suffixed)
+before falling back to `https://host/.well-known/oauth-protected-resource`
+(root). Register the route at both paths, returning the same document —
+do not implement only the root path.
+
+**Every `401` response must carry the discovery hint**, not just
+`WWW-Authenticate: Bearer`:
+
+```
+WWW-Authenticate: Bearer resource_metadata="https://<app>.<region>.azurecontainerapps.io/.well-known/oauth-protected-resource/mcp"
+```
+
+Without `resource_metadata`, a client has no way to find the metadata
+document except by guessing well-known paths against your own origin —
+which is also what leads clients to mistakenly probe your server for
+`/authorize`, `/token`, `/register` as if it were the authorization server
+itself. **Do not implement those three endpoints as a proxy to Entra**
+(see §4.3's confused-deputy warning) — the `resource_metadata` hint plus a
+correct `authorization_servers` value is the supported, proxy-free fix.
+
+### 10.2.1 VS Code discovery-bug workaround (authorization-server metadata mirror)
+
+Even with §10.2 fully implemented, a currently-open VS Code MCP client bug
+(tracked publicly:
+[Microsoft Q&A — "MCP Client Ignores authorization_servers Path from
+oauth-protected-resource metadata"](https://learn.microsoft.com/en-us/answers/questions/5904511/mcp-client-ignores-authorization-servers-path-from))
+can still prevent a working connection. Root cause: Entra's issuer always
+has a path component (`https://login.microsoftonline.com/<tenant-id>/v2.0`),
+but VS Code's authorization-server metadata discovery drops that path
+segment and queries `https://login.microsoftonline.com/.well-known/...`
+at the bare domain root — which Entra does not serve (confirmed `404`).
+When that fetch fails, VS Code falls back to treating **the resource
+server itself** as the authorization server, and starts sending
+`/authorize` requests to the MCP server's own origin instead of Entra's.
+
+**Mitigation implemented:** the server also serves Entra's own real,
+*unmodified* OIDC discovery document — fetched once from
+`https://login.microsoftonline.com/<tenant-id>/v2.0/.well-known/openid-configuration`
+and cached (`AuthorizationServerMetadataCache`, `src/apim_mcp/auth/middleware.py`)
+— at its own origin's root well-known paths:
+
+- `GET /.well-known/oauth-authorization-server`
+- `GET /.well-known/openid-configuration`
+
+Both routes are unauthenticated (added to `_UNAUTHENTICATED_PATHS`), and
+both return the identical cached document verbatim. This is **not** the
+rejected OAuth-proxy pattern: the server still implements zero
+`/authorize`, `/token`, or `/register` handlers, and the `authorization_endpoint`/
+`token_endpoint` values inside the mirrored document still point straight
+at `login.microsoftonline.com` — the browser's actual sign-in redirect
+still goes to Entra, not through this server. The mirror exists purely so
+that VS Code's buggy same-origin fallback finds a *correct* document
+instead of a `404` followed by treating this server as its own
+authorization server. If the fetch to Entra fails, the route returns
+`503` (§8 — errors are results, not exceptions), never a crash.
+
+If a future VS Code release fixes the path-dropping bug, this workaround
+becomes inert (still correct, just unnecessary) — no removal is required,
+but it may be deleted at that point to shrink surface area.
 
 ### 10.3 Foundry
 
@@ -644,8 +742,10 @@ azd ai connection create apim-mcp-conn \
   --kind remote-tool \
   --target "https://<app>.<region>.azurecontainerapps.io/mcp" \
   --auth-type user-entra-token \
-  --audience api://apim-mcp
+  --audience https://<app>.<region>.azurecontainerapps.io/mcp
 ```
+
+`--audience` must equal the server's registered Application ID URI (§4.3) — the same URL as `--target`, not an `api://` string.
 
 Then attach as an `mcp` tool (server_label `apim`, `project_connection_id` = the connection), or wrap in a Foundry Toolbox for reuse across agents.
 
@@ -777,20 +877,20 @@ Everything: server app registration, exposed scope, client app registration and 
 **3. `credential_for` (the only application code that must change):**
 
 ```python
-from azure.identity.aio import (
-    ManagedIdentityCredential, OnBehalfOfCredential
-)
+from azure.identity.aio import ManagedIdentityCredential, OnBehalfOfCredential
+
 
 async def _fic_assertion() -> str:
     token = await _mi.get_token("api://AzureADTokenExchange/.default")
     return token.token
+
 
 def credential_for(ctx: CallContext, scope: str) -> AsyncTokenCredential:
     return OnBehalfOfCredential(
         tenant_id=settings.tenant_id,
         client_id=settings.server_app_client_id,
         client_assertion_func=_fic_assertion,
-        user_assertion=ctx.bearer_token,   # raw inbound JWT
+        user_assertion=ctx.bearer_token,  # raw inbound JWT
     )
 ```
 

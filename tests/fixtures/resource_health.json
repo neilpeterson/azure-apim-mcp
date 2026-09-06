@@ -1,0 +1,17 @@
+{
+  "id": "/subscriptions/00000000-0000-0000-0000-000000000000/resourcegroups/rg-fixture/providers/microsoft.apimanagement/service/apim-fixture/providers/Microsoft.ResourceHealth/availabilityStatuses/current",
+  "name": "current",
+  "type": "Microsoft.ResourceHealth/AvailabilityStatuses",
+  "location": "centralus",
+  "properties": {
+    "availabilityState": "Available",
+    "title": "Available",
+    "summary": "There aren't any known Azure platform problems affecting this API Management service.",
+    "reasonType": "",
+    "category": "Not Applicable",
+    "context": "Not Applicable",
+    "occuredTime": "2026-08-23T03:44:46Z",
+    "reasonChronicity": "Persistent",
+    "reportedTime": "2026-09-06T02:12:26.7624074Z"
+  }
+}

@@ -1,0 +1,75 @@
+{
+  "value": [
+    {
+      "id": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-fixture/providers/Microsoft.ApiManagement/service/apim-fixture/apis/echo-api",
+      "type": "Microsoft.ApiManagement/service/apis",
+      "name": "echo-api",
+      "properties": {
+        "displayName": "Echo API",
+        "apiRevision": "1",
+        "description": null,
+        "subscriptionRequired": true,
+        "serviceUrl": "https://echo.playground.azure-api.net/api",
+        "backendId": null,
+        "path": "echo",
+        "protocols": [
+          "https"
+        ],
+        "mcpProperties": null,
+        "a2aProperties": null,
+        "isAgent": false,
+        "agent": null,
+        "jsonRpcProperties": null,
+        "authenticationSettings": {
+          "oAuth2": null,
+          "openid": null,
+          "oAuth2AuthenticationSettings": [],
+          "openidAuthenticationSettings": []
+        },
+        "subscriptionKeyParameterNames": {
+          "header": "Ocp-Apim-Subscription-Key",
+          "query": "subscription-key",
+          "bearer": null
+        },
+        "isCurrent": true,
+        "effectivePath": null
+      }
+    },
+    {
+      "id": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-fixture/providers/Microsoft.ApiManagement/service/apim-fixture/apis/hello-web",
+      "type": "Microsoft.ApiManagement/service/apis",
+      "name": "hello-web",
+      "properties": {
+        "displayName": "hello-web",
+        "apiRevision": "1",
+        "description": "",
+        "subscriptionRequired": false,
+        "serviceUrl": "https://apim-lab-app-service.azurewebsites.net",
+        "backendId": null,
+        "path": "hello-web",
+        "protocols": [
+          "https"
+        ],
+        "mcpProperties": null,
+        "a2aProperties": null,
+        "isAgent": false,
+        "agent": null,
+        "jsonRpcProperties": null,
+        "authenticationSettings": {
+          "oAuth2": null,
+          "openid": null,
+          "oAuth2AuthenticationSettings": [],
+          "openidAuthenticationSettings": []
+        },
+        "subscriptionKeyParameterNames": {
+          "header": "Ocp-Apim-Subscription-Key",
+          "query": "subscription-key",
+          "bearer": null
+        },
+        "isCurrent": true,
+        "effectivePath": null
+      }
+    }
+  ],
+  "count": 2
+}

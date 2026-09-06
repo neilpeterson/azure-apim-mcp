@@ -1,0 +1,183 @@
+[
+  {
+    "location": "Central US",
+    "networkStatus": {
+      "dnsServers": [
+        "168.63.129.16"
+      ],
+      "connectivityStatus": [
+        {
+          "name": "apigblstorageprddm1.blob.core.windows.net",
+          "status": "success",
+          "error": "",
+          "lastUpdated": "2026-09-06T02:08:24.3813671Z",
+          "lastStatusChange": "2026-09-04T09:23:13.838381Z",
+          "resourceType": "PackageStorage",
+          "isOptional": false
+        },
+        {
+          "name": "apimste9fdbmmhx0vnycrwoe.blob.core.windows.net",
+          "status": "success",
+          "error": "",
+          "lastUpdated": "2026-09-06T02:08:24.5220203Z",
+          "lastStatusChange": "2026-09-04T09:23:13.7758695Z",
+          "resourceType": "BlobStorage",
+          "isOptional": false
+        },
+        {
+          "name": "apimste9fdbmmhx0vnycrwoe.file.core.windows.net",
+          "status": "success",
+          "error": "",
+          "lastUpdated": "2026-09-06T02:08:33.0385564Z",
+          "lastStatusChange": "2026-09-04T09:23:13.9634913Z",
+          "resourceType": "FileStorage",
+          "isOptional": true
+        },
+        {
+          "name": "apimste9fdbmmhx0vnycrwoe.queue.core.windows.net",
+          "status": "success",
+          "error": "",
+          "lastUpdated": "2026-09-06T02:08:28.2069163Z",
+          "lastStatusChange": "2026-09-04T09:23:13.9165065Z",
+          "resourceType": "Queue",
+          "isOptional": false
+        },
+        {
+          "name": "apimste9fdbmmhx0vnycrwoe.table.core.windows.net",
+          "status": "success",
+          "error": "",
+          "lastUpdated": "2026-09-06T02:08:28.1444134Z",
+          "lastStatusChange": "2026-09-04T09:23:13.8696272Z",
+          "resourceType": "TableStorage",
+          "isOptional": false
+        },
+        {
+          "name": "apimstjhhtvg7fkp9wpcltmj.queue.core.windows.net",
+          "status": "success",
+          "error": "",
+          "lastUpdated": "2026-09-06T02:08:26.5190617Z",
+          "lastStatusChange": "2026-09-04T09:23:13.9165065Z",
+          "resourceType": "SmtpQueue",
+          "isOptional": true
+        },
+        {
+          "name": "apirpsqlieeuzrme5r9qfy2j.database.windows.net",
+          "status": "success",
+          "error": "",
+          "lastUpdated": "2026-09-06T02:08:24.5532723Z",
+          "lastStatusChange": "2026-09-04T09:23:13.6664972Z",
+          "resourceType": "SQLDatabase",
+          "isOptional": false
+        },
+        {
+          "name": "dc.services.visualstudio.com",
+          "status": "success",
+          "error": "",
+          "lastUpdated": "2026-09-06T02:08:38.5689809Z",
+          "lastStatusChange": "2026-09-04T09:23:13.9321337Z",
+          "resourceType": "ApplicationInsightsIngestionEndpoint",
+          "isOptional": true
+        },
+        {
+          "name": "gcs.prod.monitoring.core.windows.net",
+          "status": "success",
+          "error": "",
+          "lastUpdated": "2026-09-06T02:08:25.9064179Z",
+          "lastStatusChange": "2026-09-04T09:23:13.8540052Z",
+          "resourceType": "Monitoring",
+          "isOptional": false
+        },
+        {
+          "name": "https://apikv-o8yuvxm7vqnibueo3m.vault.azure.net",
+          "status": "success",
+          "error": "",
+          "lastUpdated": "2026-09-06T02:08:28.3162961Z",
+          "lastStatusChange": "2026-09-04T09:23:13.9165065Z",
+          "resourceType": "AzureKeyVault",
+          "isOptional": false
+        },
+        {
+          "name": "https://apim-fixture.management.azure-api.net:3443/servicestatus?api-version=2018-01-01",
+          "status": "success",
+          "error": "",
+          "lastUpdated": "2026-09-06T02:03:26.7114767Z",
+          "lastStatusChange": "2026-09-06T02:03:26.7114767Z",
+          "resourceType": "ApiManagement Control Plane - inbound",
+          "isOptional": false
+        },
+        {
+          "name": "https://centralus.login.microsoft.com",
+          "status": "success",
+          "error": "",
+          "lastUpdated": "2026-09-06T02:08:26.6440536Z",
+          "lastStatusChange": "2026-09-04T09:23:13.9165065Z",
+          "resourceType": "RegionalAzureActiveDirectory",
+          "isOptional": true
+        },
+        {
+          "name": "https://gcs.prod.warm.ingestion.monitoring.azure.com",
+          "status": "success",
+          "error": "",
+          "lastUpdated": "2026-09-06T02:08:25.8907703Z",
+          "lastStatusChange": "2026-09-04T09:23:13.9165065Z",
+          "resourceType": "Monitoring",
+          "isOptional": true
+        },
+        {
+          "name": "https://global.prod.microsoftmetrics.com",
+          "status": "success",
+          "error": "",
+          "lastUpdated": "2026-09-06T02:08:26.0157751Z",
+          "lastStatusChange": "2026-09-04T09:23:13.838381Z",
+          "resourceType": "Monitoring",
+          "isOptional": true
+        },
+        {
+          "name": "https://login.windows.net",
+          "status": "success",
+          "error": "",
+          "lastUpdated": "2026-09-06T02:08:30.9050333Z",
+          "lastStatusChange": "2026-09-04T09:23:13.6508668Z",
+          "resourceType": "AzureActiveDirectory",
+          "isOptional": true
+        },
+        {
+          "name": "https://partner.prod.repmap.microsoft.com",
+          "status": "success",
+          "error": "",
+          "lastUpdated": "2026-09-06T02:08:26.0313988Z",
+          "lastStatusChange": "2026-09-04T09:23:13.9165065Z",
+          "resourceType": "CaptchaEndpoint",
+          "isOptional": true
+        },
+        {
+          "name": "https://prod3.prod.microsoftmetrics.com:1886/RecoveryService",
+          "status": "success",
+          "error": "",
+          "lastUpdated": "2026-09-06T02:08:42.912249Z",
+          "lastStatusChange": "2026-09-04T09:23:13.9634913Z",
+          "resourceType": "Metrics",
+          "isOptional": true
+        },
+        {
+          "name": "LocalGatewayRedis",
+          "status": "success",
+          "error": "",
+          "lastUpdated": "2026-09-06T02:08:24.3032401Z",
+          "lastStatusChange": "2026-09-04T09:23:13.6977455Z",
+          "resourceType": "InternalCache",
+          "isOptional": true
+        },
+        {
+          "name": "Scm",
+          "status": "failure",
+          "error": "An error occurred while sending the request.",
+          "lastUpdated": "2026-09-06T01:58:56.7975533Z",
+          "lastStatusChange": "2026-09-04T09:23:15.6821936Z",
+          "resourceType": "SourceControl",
+          "isOptional": true
+        }
+      ]
+    }
+  }
+]

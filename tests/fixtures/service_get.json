@@ -1,0 +1,103 @@
+{
+  "etag": "AAAAAOVmfi8=",
+  "properties": {
+    "publisherEmail": "nepeters@microsoft.com",
+    "publisherName": "nepeters",
+    "notificationSenderEmail": "apimgmt-noreply@mail.windowsazure.com",
+    "provisioningState": "Succeeded",
+    "targetProvisioningState": "",
+    "createdAtUtc": "2026-01-30T19:16:49.5286396Z",
+    "gatewayUrl": "https://apim-fixture.azure-api.net",
+    "gatewayRegionalUrl": "https://apim-fixture-centralus-01.regional.azure-api.net",
+    "portalUrl": null,
+    "developerPortalUrl": "https://apim-fixture.developer.azure-api.net",
+    "dataApiUrl": null,
+    "managementApiUrl": "https://apim-fixture.management.azure-api.net",
+    "scmUrl": "https://apim-fixture.scm.azure-api.net",
+    "hostnameConfigurations": [
+      {
+        "type": "Proxy",
+        "hostName": "apim-fixture.azure-api.net",
+        "encodedCertificate": null,
+        "keyVaultId": null,
+        "certificatePassword": null,
+        "negotiateClientCertificate": false,
+        "certificate": null,
+        "defaultSslBinding": true,
+        "identityClientId": null,
+        "certificateSource": "BuiltIn",
+        "certificateStatus": null
+      }
+    ],
+    "publicIPAddresses": [
+      "20.9.109.240"
+    ],
+    "privateIPAddresses": null,
+    "additionalLocations": null,
+    "virtualNetworkConfiguration": {
+      "subnetResourceId": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-fixture/providers/Microsoft.Network/virtualNetworks/vnet-api-gateway-centralus-msft-lab/subnets/api-management",
+      "vnetid": "00000000-0000-0000-0000-000000000000",
+      "subnetname": null
+    },
+    "customProperties": {
+      "Microsoft.WindowsAzure.ApiManagement.Gateway.Security.Ciphers.TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA": "False",
+      "Microsoft.WindowsAzure.ApiManagement.Gateway.Security.Ciphers.TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA": "False",
+      "Microsoft.WindowsAzure.ApiManagement.Gateway.Security.Ciphers.TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA": "False",
+      "Microsoft.WindowsAzure.ApiManagement.Gateway.Security.Ciphers.TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA": "False",
+      "Microsoft.WindowsAzure.ApiManagement.Gateway.Security.Ciphers.TLS_RSA_WITH_AES_128_CBC_SHA": "False",
+      "Microsoft.WindowsAzure.ApiManagement.Gateway.Security.Ciphers.TLS_RSA_WITH_AES_256_CBC_SHA": "False",
+      "Microsoft.WindowsAzure.ApiManagement.Gateway.Security.Ciphers.TLS_RSA_WITH_AES_128_CBC_SHA256": "False",
+      "Microsoft.WindowsAzure.ApiManagement.Gateway.Security.Ciphers.TLS_RSA_WITH_AES_256_CBC_SHA256": "False",
+      "Microsoft.WindowsAzure.ApiManagement.Gateway.Security.Ciphers.TLS_RSA_WITH_AES_128_GCM_SHA256": "False",
+      "Microsoft.WindowsAzure.ApiManagement.Gateway.Security.Ciphers.TLS_RSA_WITH_AES_256_GCM_SHA384": "False",
+      "Microsoft.WindowsAzure.ApiManagement.Gateway.Security.Protocols.Tls10": "False",
+      "Microsoft.WindowsAzure.ApiManagement.Gateway.Security.Protocols.Tls11": "False",
+      "Microsoft.WindowsAzure.ApiManagement.Gateway.Security.Protocols.Ssl30": "False",
+      "Microsoft.WindowsAzure.ApiManagement.Gateway.Security.Ciphers.TripleDes168": "False",
+      "Microsoft.WindowsAzure.ApiManagement.Gateway.Security.Backend.Protocols.Tls10": "False",
+      "Microsoft.WindowsAzure.ApiManagement.Gateway.Security.Backend.Protocols.Tls11": "False",
+      "Microsoft.WindowsAzure.ApiManagement.Gateway.Security.Backend.Protocols.Ssl30": "False",
+      "Microsoft.WindowsAzure.ApiManagement.Gateway.Protocols.Server.Http2": "False"
+    },
+    "virtualNetworkType": "External",
+    "certificates": null,
+    "disableGateway": false,
+    "natGatewayState": "Unsupported",
+    "outboundPublicIPAddresses": [
+      "20.9.109.240"
+    ],
+    "apiVersionConstraint": {
+      "minApiVersion": null
+    },
+    "publicIpAddressId": null,
+    "publicNetworkAccess": "Enabled",
+    "privateEndpointConnections": null,
+    "platformVersion": "stv2.1",
+    "configurationApi": null,
+    "legacyPortalStatus": "Disabled",
+    "developerPortalStatus": "Enabled"
+  },
+  "sku": {
+    "name": "Developer",
+    "capacity": 1
+  },
+  "identity": {
+    "type": "SystemAssigned",
+    "principalId": "11111111-1111-1111-1111-111111111111",
+    "tenantId": "11111111-1111-1111-1111-111111111111"
+  },
+  "zones": null,
+  "systemData": {
+    "createdBy": "SC-vns12@microsoft.com",
+    "createdByType": "User",
+    "createdAt": "2026-01-30T19:16:48.6379219Z",
+    "lastModifiedBy": "SC-vns12@microsoft.com",
+    "lastModifiedByType": "User",
+    "lastModifiedAt": "2026-01-30T19:16:48.6379219Z"
+  },
+  "location": "Central US",
+  "tags": {},
+  "id": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-fixture/providers/Microsoft.ApiManagement/service/apim-fixture",
+  "name": "apim-fixture",
+  "type": "Microsoft.ApiManagement/service"
+}

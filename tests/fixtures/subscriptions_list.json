@@ -1,0 +1,58 @@
+{
+  "value": [
+    {
+      "id": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-fixture/providers/Microsoft.ApiManagement/service/apim-fixture/subscriptions/697d05562f45ff0038070001",
+      "type": "Microsoft.ApiManagement/service/subscriptions",
+      "name": "697d05562f45ff0038070001",
+      "properties": {
+        "ownerId": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-fixture/providers/Microsoft.ApiManagement/service/apim-fixture/users/1",
+        "scope": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-fixture/providers/Microsoft.ApiManagement/service/apim-fixture/products/starter",
+        "displayName": null,
+        "state": "active",
+        "createdDate": "2026-01-30T19:24:06.66Z",
+        "startDate": null,
+        "expirationDate": null,
+        "endDate": null,
+        "notificationDate": null,
+        "stateComment": null,
+        "allowTracing": false
+      }
+    },
+    {
+      "id": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-fixture/providers/Microsoft.ApiManagement/service/apim-fixture/subscriptions/697d05562f45ff0038070002",
+      "type": "Microsoft.ApiManagement/service/subscriptions",
+      "name": "697d05562f45ff0038070002",
+      "properties": {
+        "ownerId": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-fixture/providers/Microsoft.ApiManagement/service/apim-fixture/users/1",
+        "scope": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-fixture/providers/Microsoft.ApiManagement/service/apim-fixture/products/unlimited",
+        "displayName": null,
+        "state": "active",
+        "createdDate": "2026-01-30T19:24:06.91Z",
+        "startDate": null,
+        "expirationDate": null,
+        "endDate": null,
+        "notificationDate": null,
+        "stateComment": null,
+        "allowTracing": false
+      }
+    },
+    {
+      "id": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-fixture/providers/Microsoft.ApiManagement/service/apim-fixture/subscriptions/master",
+      "type": "Microsoft.ApiManagement/service/subscriptions",
+      "name": "master",
+      "properties": {
+        "scope": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-fixture/providers/Microsoft.ApiManagement/service/apim-fixture/",
+        "displayName": "Built-in all-access subscription",
+        "state": "active",
+        "createdDate": "2026-01-30T19:39:33.473Z",
+        "startDate": null,
+        "expirationDate": null,
+        "endDate": null,
+        "notificationDate": null,
+        "stateComment": null,
+        "allowTracing": false
+      }
+    }
+  ],
+  "count": 3
+}
