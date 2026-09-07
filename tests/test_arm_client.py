@@ -165,6 +165,51 @@ async def test_5xx_becomes_upstream_error_after_retries_exhausted() -> None:
     assert call_count == arm_module._MAX_ATTEMPTS
 
 
+async def test_transport_error_is_retried_and_recovers() -> None:
+    """A connection-level blip (not an HTTP status) must be retried the
+    same as a 5xx - otherwise it looks identical to a real bug: the tool
+    fails on the first flaky attempt while a fresh manual retry, made
+    moments later from outside this process, succeeds."""
+    call_count = 0
+    sleeps: list[float] = []
+
+    async def fake_sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise httpx.ReadTimeout("simulated network blip", request=request)
+        return httpx.Response(200, json={"name": "apim-fixture"})
+
+    client = _client(handler, sleep=fake_sleep)
+    result = await client.get(RESOURCE_ID)
+
+    assert result == {"name": "apim-fixture"}
+    assert call_count == 2
+    assert sleeps == [arm_module._BASE_BACKOFF_SECONDS]
+
+
+async def test_transport_error_becomes_upstream_error_after_retries_exhausted() -> None:
+    call_count = 0
+
+    async def fake_sleep(seconds: float) -> None:
+        return None
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal call_count
+        call_count += 1
+        raise httpx.ConnectError("simulated connection failure", request=request)
+
+    client = _client(handler, sleep=fake_sleep)
+    result = await client.get(RESOURCE_ID)
+
+    assert isinstance(result, ToolError)
+    assert result.kind == "upstream_error"
+    assert call_count == arm_module._MAX_ATTEMPTS
+
+
 def test_no_mutating_http_methods_are_issued() -> None:
     source = inspect.getsource(arm_module)
     for forbidden in (".post(", ".put(", ".patch(", ".delete("):

@@ -175,6 +175,15 @@ class ArmClient:
         headers = {"Authorization": _build_auth_header(access_token_response.token)}
 
         async def _attempt() -> httpx.Response:
+            # `httpx.TransportError` covers connection resets, DNS blips,
+            # and read/connect timeouts - the network-level flakiness that
+            # a fresh manual retry from outside this process would also
+            # paper over. Treating only HTTP-level 429/5xx as retryable
+            # left these indistinguishable from a genuine bug: they skipped
+            # every retry attempt and surfaced as a bare `upstream_error`
+            # after a single failed connection, even though the *next*
+            # request (from a human retrying, or from this client a moment
+            # later) would very likely succeed.
             async with httpx.AsyncClient(transport=self._transport, timeout=30.0) as client:
                 response = await client.get(url, params=query, headers=headers)
             if response.status_code == 429 or response.status_code >= 500:
@@ -193,7 +202,7 @@ class ArmClient:
         try:
             async for attempt in AsyncRetrying(
                 sleep=self._sleep,
-                retry=retry_if_exception_type(_RetryableResponseError),
+                retry=retry_if_exception_type((_RetryableResponseError, httpx.TransportError)),
                 stop=stop_after_attempt(_MAX_ATTEMPTS),
                 wait=_wait,
                 reraise=True,
@@ -202,6 +211,10 @@ class ArmClient:
                     response = await _attempt()
         except _RetryableResponseError as exc:
             return _map_error(exc.response, resource_id=resource_id_or_url)
+        except httpx.TransportError as exc:
+            return upstream_error(
+                log_detail=f"transport error after retries for {resource_id_or_url}: {exc!r}"
+            )
         except RetryError as exc:  # pragma: no cover - reraise=True makes this unreachable
             raise exc
 
