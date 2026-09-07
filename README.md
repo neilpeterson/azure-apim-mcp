@@ -65,6 +65,34 @@ Handy for ad-hoc telemetry questions during development, and for resolving H-04
 > and D. Group C (the search index) is unlikely to be covered — it is an
 > opinionated index build, not an API wrapper.
 
+## Available tools
+
+All tools are read-only, take a `response_format: "markdown" | "json"` parameter, and
+never return secrets (subscription keys, named-value secrets, certificates, backend
+credentials) — see `docs/PRINCIPLES.md` §4/§5. This list reflects what's implemented
+today; the full catalogue (Groups C and D — search, metrics, gateway logs) is tracked
+in `TASKS.md`.
+
+### Group A — Service discovery
+
+| Tool | Returns |
+|---|---|
+| `apim_list_services` | Every APIM instance configured in `APIM_SERVICES`: alias, name, resource group, location, SKU, provisioning state, platform version, whether Log Analytics is wired up. |
+| `apim_get_service` | Full configuration of one instance: SKU/capacity, provisioning state, platform version, VNet type, public IPs, additional locations, portal/gateway URLs, per-hostname certificate details (never the certificate itself). |
+| `apim_get_service_health` | Consolidated health: provisioning state, Azure Resource Health, certificate-expiry warnings (<30 days), capacity, and dependency network status. Each section degrades independently rather than failing the whole call. |
+
+### Group B — API configuration
+
+| Tool | Returns |
+|---|---|
+| `apim_list_apis` | APIs on one instance (current revisions by default): id, name, path, protocols, revision info, subscription requirement. Supports `filter`, `include_revisions`, `limit`/`offset`. |
+| `apim_get_api` | One API's full entity plus its operations (method, URL template, description). Truncates at 100 operations with a hint to use `apim_get_api_spec` (roadmap). |
+| `apim_get_policy` | Policy XML at `global`/`api`/`operation`/`product` scope, with sensitive header values and high-entropy secrets redacted (`docs/SPEC.md` §8.2). `{{named-value}}` references are preserved. |
+| `apim_list_products` | Products: id, name, description, subscription/approval requirements, state. |
+| `apim_list_backends` | Backends: id, name, url, protocol, title, TLS settings. Never `credentials`. |
+| `apim_list_named_values` | Named values: name, displayName, tags, `secret` flag. Returns `value` only when `secret` is `false`. |
+| `apim_list_subscriptions` | Subscriptions: id, displayName, scope, state, owner. Never `primaryKey`/`secondaryKey`. |
+
 ## Repository map
 
 | File | Reader | Role |
