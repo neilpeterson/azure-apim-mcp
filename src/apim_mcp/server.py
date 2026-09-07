@@ -7,6 +7,7 @@ results, not exceptions").
 
 from __future__ import annotations
 
+import asyncio
 import functools
 import inspect
 import logging
@@ -41,6 +42,7 @@ from apim_mcp.auth.middleware import (
 from apim_mcp.common.errors import ToolError, error_envelope, upstream_error
 from apim_mcp.common.formatting import ResponseFormat, render
 from apim_mcp.common.telemetry import AuditEvent, emit_audit_event, run_permission_canary
+from apim_mcp.index.search import IndexManager
 from apim_mcp.settings import Settings, get_settings
 
 logger = logging.getLogger(__name__)
@@ -329,16 +331,22 @@ def create_app(
     the startup canary. Imports `apim_mcp.tools` lazily (rather than at
     module scope) since those modules import `audited_tool`/`ToolRegistration`
     from here — a module-level import would be circular."""
+    from apim_mcp.index.search import IndexManager
     from apim_mcp.tools.config import register_config_tools
     from apim_mcp.tools.discovery import register_discovery_tools
+    from apim_mcp.tools.search import register_search_tools
 
     resolved_settings = settings or get_settings()
     mcp = create_mcp(resolved_settings, allowed_hosts=allowed_hosts)
     registry: list[ToolRegistration] = []
     register_discovery_tools(mcp, registry, resolved_settings)
     register_config_tools(mcp, registry, resolved_settings)
+    # One `IndexManager` per running server, not module-level - see
+    # docs/PRINCIPLES.md §7 and `apim_mcp.index.search.IndexManager`.
+    index_manager = IndexManager(resolved_settings)
+    register_search_tools(mcp, registry, resolved_settings, index_manager)
     app = wrap_with_middleware(mcp, resolved_settings)
-    return _StartupCanaryApp(app, resolved_settings)
+    return _StartupCanaryApp(app, resolved_settings, index_manager=index_manager)
 
 
 async def _run_startup_canary(settings: Settings) -> None:
@@ -364,15 +372,25 @@ class _StartupCanaryApp:
     startup event, before delegating the rest of the lifespan protocol
     (including the wrapped app's own startup/shutdown) to `app`.
 
+    Also kicks off the eager first index build (§7.5) on the same
+    `lifespan.startup` event, but as a *fire-and-forget* background task
+    rather than something this class awaits - "build once eagerly at
+    startup so the first query isn't slow. Do not block readiness on it."
+    A slow or large-tenant index build must never delay `/readyz` or the
+    first MCP request answering.
+
     A thin ASGI-level wrapper rather than an inner `Callable[[FastMCP],
     AbstractAsyncContextManager]` passed to `FastMCP(lifespan=...)`,
     because that hook is driven by the low-level session lifespan (which
     can run more than once under `stateless_http`), not once per process.
     """
 
-    def __init__(self, app: ASGIApp, settings: Settings) -> None:
+    def __init__(
+        self, app: ASGIApp, settings: Settings, *, index_manager: IndexManager | None = None
+    ) -> None:
         self._app = app
         self._settings = settings
+        self._index_manager = index_manager
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "lifespan":
@@ -387,6 +405,9 @@ class _StartupCanaryApp:
             if message["type"] == "lifespan.startup" and not canary_ran:
                 canary_ran = True
                 await _run_startup_canary(self._settings)
+                if self._index_manager is not None and self._settings.apim_services:
+                    ctx = CallContext(oid="startup", upn="startup", roles=(), bearer_token="")
+                    asyncio.create_task(self._index_manager.build_all(ctx))  # noqa: RUF006
             return message
 
         await self._app(scope, _receive, send)

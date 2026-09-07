@@ -292,13 +292,13 @@ Build `OperationIndexEntry` per operation. Spec extraction is **best-effort** �
 Every entry point carries a `# OBO:` comment per `docs/PRINCIPLES.md` §3.
 
 **Done when:**
-- [ ] `test_concurrency_is_bounded` — never exceeds the semaphore limit
-- [ ] `test_throttling_is_not_failure` — 429s retried, build completes
-- [ ] `test_export_failure_degrades` — `specIndexed: false`, entry still indexed
-- [ ] `test_schema_depth_capped`
-- [ ] `test_build_timeout_returns_partial`
-- [ ] Field weighting from §7.3 implemented as specified
-- [ ] `# OBO:` comments present
+- [x] `test_concurrency_is_bounded` — never exceeds the semaphore limit
+- [x] `test_throttling_is_not_failure` — 429s retried, build completes
+- [x] `test_export_failure_degrades` — `specIndexed: false`, entry still indexed
+- [x] `test_schema_depth_capped`
+- [x] `test_build_timeout_returns_partial`
+- [x] Field weighting from §7.3 implemented as specified
+- [x] `# OBO:` comments present
 
 ---
 
@@ -311,13 +311,13 @@ BM25 over the tokenized corpus. `apim_search_apis` and `apim_refresh_index`. **N
 The tool description must instruct the model to supply synonyms itself, with the inventory example spelled out.
 
 **Done when:**
-- [ ] `test_inventory_question` — a fixture API with `getInventoryLevels` is found by query `"inventory"` and ranks first
-- [ ] `test_synonym_terms_widen_results` — `terms=["stock"]` surfaces an operation named `getStockLevels`
-- [ ] `test_low_confidence_flagged` — nonsense query returns hits with `lowConfidence: true`
-- [ ] `matchedFields` and `snippet` populated on every hit
-- [ ] `apim_refresh_index` rate-limited to once per service per 60s
-- [ ] Stale index served during background rebuild; never blocks a request
-- [ ] Tool description contains the synonym instruction
+- [x] `test_inventory_question` — a fixture API with `getInventoryLevels` is found by query `"inventory"` and ranks first
+- [x] `test_synonym_terms_widen_results` — `terms=["stock"]` surfaces an operation named `getStockLevels`
+- [x] `test_low_confidence_flagged` — nonsense query returns hits with `lowConfidence: true`
+- [x] `matchedFields` and `snippet` populated on every hit
+- [x] `apim_refresh_index` rate-limited to once per service per 60s
+- [x] Stale index served during background rebuild; never blocks a request
+- [x] Tool description contains the synonym instruction
 
 ---
 
