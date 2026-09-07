@@ -61,6 +61,29 @@ async def test_get_returns_parsed_body() -> None:
     assert result == {"name": "apim-fixture"}
 
 
+async def test_get_returns_upstream_error_for_non_json_200() -> None:
+    """A 200 with a body that isn't valid JSON must become a `ToolError`,
+    not raise `json.JSONDecodeError` out of the handler
+    (docs/PRINCIPLES.md §8)."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text="<not-json/>")
+
+    client = _client(handler)
+    result = await client.get(RESOURCE_ID)
+    assert isinstance(result, ToolError)
+    assert result.kind == "upstream_error"
+
+
+async def test_get_text_returns_raw_body_even_when_not_json() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text="<policies><inbound /></policies>")
+
+    client = _client(handler)
+    result = await client.get_text(RESOURCE_ID)
+    assert result == "<policies><inbound /></policies>"
+
+
 async def test_follows_next_link() -> None:
     call_count = 0
 
@@ -165,6 +188,51 @@ async def test_5xx_becomes_upstream_error_after_retries_exhausted() -> None:
     assert call_count == arm_module._MAX_ATTEMPTS
 
 
+async def test_transport_error_is_retried_and_recovers() -> None:
+    """A connection-level blip (not an HTTP status) must be retried the
+    same as a 5xx - otherwise it looks identical to a real bug: the tool
+    fails on the first flaky attempt while a fresh manual retry, made
+    moments later from outside this process, succeeds."""
+    call_count = 0
+    sleeps: list[float] = []
+
+    async def fake_sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise httpx.ReadTimeout("simulated network blip", request=request)
+        return httpx.Response(200, json={"name": "apim-fixture"})
+
+    client = _client(handler, sleep=fake_sleep)
+    result = await client.get(RESOURCE_ID)
+
+    assert result == {"name": "apim-fixture"}
+    assert call_count == 2
+    assert sleeps == [arm_module._BASE_BACKOFF_SECONDS]
+
+
+async def test_transport_error_becomes_upstream_error_after_retries_exhausted() -> None:
+    call_count = 0
+
+    async def fake_sleep(seconds: float) -> None:
+        return None
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal call_count
+        call_count += 1
+        raise httpx.ConnectError("simulated connection failure", request=request)
+
+    client = _client(handler, sleep=fake_sleep)
+    result = await client.get(RESOURCE_ID)
+
+    assert isinstance(result, ToolError)
+    assert result.kind == "upstream_error"
+    assert call_count == arm_module._MAX_ATTEMPTS
+
+
 def test_no_mutating_http_methods_are_issued() -> None:
     source = inspect.getsource(arm_module)
     for forbidden in (".post(", ".put(", ".patch(", ".delete("):
@@ -173,7 +241,7 @@ def test_no_mutating_http_methods_are_issued() -> None:
 
 def test_public_api_surface_is_read_only() -> None:
     public_methods = {name for name in dir(ArmClient) if not name.startswith("_")}
-    assert public_methods == {"get", "list_all"}
+    assert public_methods == {"get", "get_text", "list_all"}
 
 
 def test_arm_client_does_not_store_a_persistent_http_client() -> None:

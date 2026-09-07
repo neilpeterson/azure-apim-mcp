@@ -226,11 +226,11 @@ Startup permission canary (§4.2): resolve the UAMI's effective permissions per 
 Header-name matching, high-entropy patterns (base64 ≥40, hex ≥32, JWT shape, SAS params), `[REDACTED:reason]` markers, untrusted-content wrapping, control-character stripping.
 
 **Done when:**
-- [ ] One test per pattern in §8.2
-- [ ] `test_named_value_refs_survive` — `{{my-value}}` passes through untouched
-- [ ] `test_untrusted_content_is_wrapped`
-- [ ] `test_redaction_marker_is_visible` — output shows redaction occurred so the model can say so
-- [ ] Zero-width Unicode and control chars stripped
+- [x] One test per pattern in §8.2
+- [x] `test_named_value_refs_survive` — `{{my-value}}` passes through untouched
+- [x] `test_untrusted_content_is_wrapped`
+- [x] `test_redaction_marker_is_visible` — output shows redaction occurred so the model can say so
+- [x] Zero-width Unicode and control chars stripped
 
 ---
 
@@ -241,11 +241,11 @@ Header-name matching, high-entropy patterns (base64 ≥40, hex ≥32, JWT shape,
 Split camelCase, PascalCase, snake_case, kebab-case, and URL path segments. This one function is most of what makes the search tool work.
 
 **Done when:**
-- [ ] `getInventoryLevels` → `{get, inventory, levels}`
-- [ ] `/orders/{orderId}/line-items` → `{orders, order, id, line, items}`
-- [ ] `SKU_count` → `{sku, count}`
-- [ ] Acronyms handled: `parseXMLResponse` → `{parse, xml, response}`
-- [ ] Idempotent on already-tokenized input
+- [x] `getInventoryLevels` → `{get, inventory, levels}`
+- [x] `/orders/{orderId}/line-items` → `{orders, order, id, line, items}`
+- [x] `SKU_count` → `{sku, count}`
+- [x] Acronyms handled: `parseXMLResponse` → `{parse, xml, response}`
+- [x] Idempotent on already-tokenized input
 
 ---
 
@@ -256,12 +256,12 @@ Split camelCase, PascalCase, snake_case, kebab-case, and URL path segments. This
 `apim_list_apis`, `apim_get_api`, `apim_get_policy`, `apim_list_products`, `apim_list_backends`, `apim_list_named_values`, `apim_list_subscriptions`.
 
 **Done when:**
-- [ ] `test_named_values_never_returns_values` — secret entries expose name and flag only
-- [ ] `test_subscriptions_never_return_keys`
-- [ ] `test_backends_omit_credentials`
-- [ ] `test_list_apis_excludes_revisions_by_default`
-- [ ] Tool descriptions state explicitly what is *not* returned
-- [ ] Policy output passes through T-11 redaction
+- [x] `test_named_values_never_returns_values` — secret entries expose name and flag only
+- [x] `test_subscriptions_never_return_keys`
+- [x] `test_backends_omit_credentials`
+- [x] `test_list_apis_excludes_revisions_by_default`
+- [x] Tool descriptions state explicitly what is *not* returned
+- [x] Policy output passes through T-11 redaction
 
 ---
 

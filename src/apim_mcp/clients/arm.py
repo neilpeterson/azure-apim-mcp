@@ -122,8 +122,40 @@ class ArmClient:
         response = await self._send(resource_id, api_version=api_version, params=params)
         if isinstance(response, ToolError):
             return response
-        parsed: dict[str, Any] | list[Any] = response.json()
+        try:
+            parsed: dict[str, Any] | list[Any] = response.json()
+        except ValueError:
+            # A 200 with a body that isn't valid JSON is still an ARM
+            # contract violation from this client's point of view - never
+            # let it raise out of a tool handler (docs/PRINCIPLES.md §8).
+            # Callers that expect a non-JSON body for a given resource
+            # (e.g. `format=rawxml` policy exports) must use `get_text`
+            # instead of `get`.
+            return upstream_error(
+                log_detail=(
+                    f"non-JSON 200 response from ARM for {resource_id}: "
+                    f"{response.text[:500]!r}"
+                )
+            )
         return parsed
+
+    async def get_text(
+        self,
+        resource_id: str,
+        *,
+        api_version: str = DEFAULT_API_VERSION,
+        params: Mapping[str, str] | None = None,
+    ) -> str | ToolError:
+        """GET one resource as raw text, for endpoints that may not return
+        JSON regardless of what the ARM REST reference documents - e.g.
+        `.../policies/policy?format=rawxml` in practice returns the policy
+        as a bare XML document rather than a JSON-wrapped `PolicyContract`,
+        despite the published sample response. Use this instead of `get`
+        whenever the response is not reliably JSON."""
+        response = await self._send(resource_id, api_version=api_version, params=params)
+        if isinstance(response, ToolError):
+            return response
+        return response.text
 
     async def list_all(
         self,
@@ -175,6 +207,15 @@ class ArmClient:
         headers = {"Authorization": _build_auth_header(access_token_response.token)}
 
         async def _attempt() -> httpx.Response:
+            # `httpx.TransportError` covers connection resets, DNS blips,
+            # and read/connect timeouts - the network-level flakiness that
+            # a fresh manual retry from outside this process would also
+            # paper over. Treating only HTTP-level 429/5xx as retryable
+            # left these indistinguishable from a genuine bug: they skipped
+            # every retry attempt and surfaced as a bare `upstream_error`
+            # after a single failed connection, even though the *next*
+            # request (from a human retrying, or from this client a moment
+            # later) would very likely succeed.
             async with httpx.AsyncClient(transport=self._transport, timeout=30.0) as client:
                 response = await client.get(url, params=query, headers=headers)
             if response.status_code == 429 or response.status_code >= 500:
@@ -193,7 +234,7 @@ class ArmClient:
         try:
             async for attempt in AsyncRetrying(
                 sleep=self._sleep,
-                retry=retry_if_exception_type(_RetryableResponseError),
+                retry=retry_if_exception_type((_RetryableResponseError, httpx.TransportError)),
                 stop=stop_after_attempt(_MAX_ATTEMPTS),
                 wait=_wait,
                 reraise=True,
@@ -202,6 +243,10 @@ class ArmClient:
                     response = await _attempt()
         except _RetryableResponseError as exc:
             return _map_error(exc.response, resource_id=resource_id_or_url)
+        except httpx.TransportError as exc:
+            return upstream_error(
+                log_detail=f"transport error after retries for {resource_id_or_url}: {exc!r}"
+            )
         except RetryError as exc:  # pragma: no cover - reraise=True makes this unreachable
             raise exc
 
