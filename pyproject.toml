@@ -16,6 +16,7 @@ dependencies = [
     "rank-bm25>=0.2",
     "azure-monitor-opentelemetry>=1.6",
     "tenacity>=9.0",
+    "pyyaml>=6.0.3",
 ]
 
 [dependency-groups]
@@ -25,6 +26,7 @@ dev = [
     "pytest-httpx>=0.35",
     "ruff>=0.8",
     "mypy>=1.13",
+    "types-pyyaml>=6.0.12.20260815",
 ]
 
 [build-system]

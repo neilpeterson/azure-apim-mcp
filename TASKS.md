@@ -272,12 +272,12 @@ Split camelCase, PascalCase, snake_case, kebab-case, and URL path segments. This
 Two-call flow. The export response returns a **link**, not the document. Fetch the blob with a plain `httpx` GET and **no `Authorization` header** — the SAS is the credential. The SAS is valid five minutes: fetch immediately, never cache the link, re-export on retry.
 
 **Done when:**
-- [ ] `test_no_auth_header_on_blob_fetch` — asserts the second request carries no bearer token
-- [ ] `test_link_is_never_cached` — only the fetched document is cached
-- [ ] `test_expired_sas_triggers_reexport`
-- [ ] `mode="summary"` returns info, servers, security scheme names, and compact per-path listing
-- [ ] `test_export_failure_is_graceful` — a SOAP/GraphQL API that cannot export returns a typed error, not a crash
-- [ ] Cache key includes `oid`
+- [x] `test_no_auth_header_on_blob_fetch` — asserts the second request carries no bearer token
+- [x] `test_link_is_never_cached` — only the fetched document is cached
+- [x] `test_expired_sas_triggers_reexport`
+- [x] `mode="summary"` returns info, servers, security scheme names, and compact per-path listing
+- [x] `test_export_failure_is_graceful` — a SOAP/GraphQL API that cannot export returns a typed error, not a crash
+- [x] Cache key includes `oid`
 
 ---
 

@@ -133,8 +133,7 @@ class ArmClient:
             # instead of `get`.
             return upstream_error(
                 log_detail=(
-                    f"non-JSON 200 response from ARM for {resource_id}: "
-                    f"{response.text[:500]!r}"
+                    f"non-JSON 200 response from ARM for {resource_id}: {response.text[:500]!r}"
                 )
             )
         return parsed

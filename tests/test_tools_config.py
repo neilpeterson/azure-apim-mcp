@@ -20,6 +20,7 @@ import apim_mcp.clients.arm as arm_module
 from _fixture_transport import FixtureTransport
 from apim_mcp.auth.context import CallContext
 from apim_mcp.clients.arm import ArmClient
+from apim_mcp.common.errors import ToolError, not_found
 from apim_mcp.server import ToolRegistration, create_mcp, wrap_with_middleware
 from apim_mcp.settings import ApimServiceConfig, Settings
 from apim_mcp.tools.config import register_config_tools
@@ -78,7 +79,7 @@ def _settings() -> Settings:
     )
 
 
-def _token() -> str:
+def _token(*, oid: str = "caller-oid") -> str:
     now = int(time.time())
     claims = {
         "iss": ISSUER,
@@ -86,7 +87,7 @@ def _token() -> str:
         "exp": now + 3600,
         "nbf": now - 10,
         "iat": now,
-        "oid": "caller-oid",
+        "oid": oid,
         "preferred_username": "caller@example.com",
         "roles": [REQUIRED_ROLE],
     }
@@ -157,6 +158,7 @@ def test_config_tools_registered(monkeypatch: pytest.MonkeyPatch) -> None:
         "apim_list_backends",
         "apim_list_named_values",
         "apim_list_subscriptions",
+        "apim_get_api_spec",
     }
 
 
@@ -402,7 +404,7 @@ def test_get_policy_handles_bare_xml_response(monkeypatch: pytest.MonkeyPatch) -
     policy_xml = (
         '<policies><inbound><set-header name="Authorization" exists-action="override">'
         "<value>abcSECRETtoken1234567890</value></set-header>"
-        "<set-header name=\"X-Named\" exists-action=\"override\">"
+        '<set-header name="X-Named" exists-action="override">'
         "<value>{{my-value}}</value></set-header>"
         "</inbound></policies>"
     )
@@ -642,4 +644,193 @@ def test_audit_events_emitted_for_all_config_tools(
 
     audit_records = [r for r in caplog.records if r.name == AUDIT_LOGGER_NAME]
     logged_tools = {json.loads(r.message)["tool"] for r in audit_records}
-    assert logged_tools == {r.name for r in registry} - {"apim_get_policy"}
+    assert logged_tools == {r.name for r in registry} - {"apim_get_policy", "apim_get_api_spec"}
+
+
+_SAMPLE_SPEC_DOCUMENT: dict[str, Any] = {
+    "info": {"title": "Echo API", "version": "1.0"},
+    "servers": [{"url": "https://apim-fixture.azure-api.net/echo"}],
+    "components": {"securitySchemes": {"apiKeyHeader": {"type": "apiKey"}}},
+    "paths": {
+        "/inventory/{id}": {
+            "get": {
+                "operationId": "getInventoryLevels",
+                "summary": "Get inventory levels",
+                "parameters": [{"name": "id"}],
+            }
+        }
+    },
+}
+
+
+def test_spec_tool_summary_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`apim_get_api_spec` in `mode="summary"` (T-14): the tool-level
+    behaviour (mode branching, rendering) built on top of the two-call
+    fetch flow already covered by `tests/test_spec_export.py`."""
+    app, _registry, _settings_obj = _build_app(monkeypatch, transport=_fixture_transport())
+
+    calls: list[str] = []
+
+    async def fake_fetch(
+        ctx: CallContext,
+        resource_id: str,
+        *,
+        format: str,  # noqa: A002
+    ) -> dict[str, Any]:
+        calls.append(resource_id)
+        return _SAMPLE_SPEC_DOCUMENT
+
+    monkeypatch.setattr("apim_mcp.tools.config.fetch_spec_document", fake_fetch)
+
+    with TestClient(app) as client:
+        response = _call_tool(
+            client,
+            "apim_get_api_spec",
+            {"service": "prod", "api_id": "echo-api", "response_format": "json"},
+        )
+    payload = json.loads(_result_text(response))
+
+    assert payload["mode"] == "summary"
+    assert payload["info"]["title"] == "Echo API"
+    assert payload["servers"] == _SAMPLE_SPEC_DOCUMENT["servers"]
+    assert payload["securitySchemes"] == ["apiKeyHeader"]
+    assert payload["paths"] == [
+        {
+            "path": "/inventory/{id}",
+            "method": "GET",
+            "operationId": "getInventoryLevels",
+            "summary": "Get inventory levels",
+            "parameters": ["id"],
+        }
+    ]
+    assert len(calls) == 1
+    assert calls[0].endswith("/apis/echo-api")
+
+
+def test_spec_tool_full_mode_returns_raw_document(monkeypatch: pytest.MonkeyPatch) -> None:
+    app, _registry, _settings_obj = _build_app(monkeypatch, transport=_fixture_transport())
+
+    async def fake_fetch(
+        ctx: CallContext,
+        resource_id: str,
+        *,
+        format: str,  # noqa: A002
+    ) -> dict[str, Any]:
+        return _SAMPLE_SPEC_DOCUMENT
+
+    monkeypatch.setattr("apim_mcp.tools.config.fetch_spec_document", fake_fetch)
+
+    with TestClient(app) as client:
+        response = _call_tool(
+            client,
+            "apim_get_api_spec",
+            {
+                "service": "prod",
+                "api_id": "echo-api",
+                "mode": "full",
+                "response_format": "json",
+            },
+        )
+    payload = json.loads(_result_text(response))
+
+    assert payload["mode"] == "full"
+    assert payload["document"] == _SAMPLE_SPEC_DOCUMENT
+
+
+def test_spec_tool_full_mode_falls_back_to_summary_over_size_ceiling(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app, _registry, settings_obj = _build_app(monkeypatch, transport=_fixture_transport())
+    settings_obj.max_response_bytes = 200
+
+    huge_document = {
+        "info": {"title": "Huge API"},
+        "servers": [],
+        "paths": {
+            f"/op{i}": {"get": {"operationId": f"op{i}", "parameters": []}} for i in range(200)
+        },
+    }
+
+    async def fake_fetch(
+        ctx: CallContext,
+        resource_id: str,
+        *,
+        format: str,  # noqa: A002
+    ) -> dict[str, Any]:
+        return huge_document
+
+    monkeypatch.setattr("apim_mcp.tools.config.fetch_spec_document", fake_fetch)
+
+    with TestClient(app) as client:
+        response = _call_tool(
+            client,
+            "apim_get_api_spec",
+            {
+                "service": "prod",
+                "api_id": "echo-api",
+                "mode": "full",
+                "response_format": "json",
+            },
+        )
+    payload = json.loads(_result_text(response))
+
+    assert payload["mode"] == "summary"
+    assert payload["truncated"] is True
+    assert "hint" in payload
+
+
+def test_spec_tool_export_failure_returns_typed_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    app, _registry, _settings_obj = _build_app(monkeypatch, transport=_fixture_transport())
+
+    async def failing_fetch(
+        ctx: CallContext,
+        resource_id: str,
+        *,
+        format: str,  # noqa: A002
+    ) -> ToolError:
+        return not_found("api spec", "echo-api", "prod")
+
+    monkeypatch.setattr("apim_mcp.tools.config.fetch_spec_document", failing_fetch)
+
+    with TestClient(app) as client:
+        response = _call_tool(
+            client, "apim_get_api_spec", {"service": "prod", "api_id": "echo-api"}
+        )
+    body = response.json()
+    assert body["result"]["content"][0]["text"]
+    payload = json.loads(body["result"]["content"][0]["text"])
+    assert payload["error"]["kind"] == "not_found"
+
+
+def test_spec_tool_cache_is_scoped_by_oid(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Cache key includes `oid` (docs/PRINCIPLES.md §3): two calls with the
+    same caller identity hit the cache; a different caller re-fetches."""
+    app, _registry, _settings_obj = _build_app(monkeypatch, transport=_fixture_transport())
+
+    calls: list[str] = []
+
+    async def fake_fetch(
+        ctx: CallContext,
+        resource_id: str,
+        *,
+        format: str,  # noqa: A002
+    ) -> dict[str, Any]:
+        calls.append(ctx.oid)
+        return _SAMPLE_SPEC_DOCUMENT
+
+    monkeypatch.setattr("apim_mcp.tools.config.fetch_spec_document", fake_fetch)
+
+    arguments = {"service": "prod", "api_id": "echo-api"}
+    with TestClient(app) as client:
+        for req_id, oid in enumerate(("caller-oid", "caller-oid", "other-oid"), start=1):
+            client.post(
+                "/mcp",
+                json=_rpc(
+                    "tools/call",
+                    {"name": "apim_get_api_spec", "arguments": arguments},
+                    req_id=req_id,
+                ),
+                headers={**REQUEST_HEADERS, "Authorization": f"Bearer {_token(oid=oid)}"},
+            )
+
+    assert calls == ["caller-oid", "other-oid"]

@@ -1,11 +1,14 @@
-"""Group B tools: API configuration (T-13). See docs/SPEC.md §6 Group B.
+"""Group B tools: API configuration (T-13, T-14). See docs/SPEC.md §6 Group B.
 
-`apim_get_api_spec` (the OpenAPI/Swagger export) is deliberately excluded —
-that is T-14, with its own two-call SAS-link flow. Everything here is a
-straightforward ARM read, except `apim_get_policy`, which must pass its
-result through the T-11 redaction module before it ever reaches the model:
-policy XML is exactly the "content the identity is legitimately allowed to
-read but which may embed secrets" case `docs/PRINCIPLES.md` §5 describes.
+Everything here is a straightforward ARM read, except:
+- `apim_get_policy`, which must pass its result through the T-11 redaction
+  module before it ever reaches the model: policy XML is exactly the
+  "content the identity is legitimately allowed to read but which may
+  embed secrets" case `docs/PRINCIPLES.md` §5 describes.
+- `apim_get_api_spec` (T-14), whose two-call SAS-link export flow lives in
+  `apim_mcp.clients.apim` rather than here - this module only owns the
+  tool-level concerns (caching per `(oid, service, api_id, format)`, the
+  `summary`/`full` mode split, and size-ceiling truncation on `full`).
 """
 
 from __future__ import annotations
@@ -16,9 +19,22 @@ from typing import Any, Literal
 from mcp.server.fastmcp import FastMCP
 
 from apim_mcp.auth.context import CallContext
+from apim_mcp.clients.apim import (
+    SpecCacheKey,
+    SpecDocumentCache,
+    SpecFormat,
+    SpecMode,
+    fetch_spec_document,
+    spec_summary,
+)
 from apim_mcp.clients.arm import ArmClient
 from apim_mcp.common.errors import ToolError, invalid_input, not_found, upstream_error
-from apim_mcp.common.formatting import ResponseFormat, apply_truncation, build_list_envelope
+from apim_mcp.common.formatting import (
+    ResponseFormat,
+    apply_truncation,
+    build_list_envelope,
+    render_json,
+)
 from apim_mcp.common.redaction import redact_policy_xml
 from apim_mcp.server import ToolRegistration, audited_tool
 from apim_mcp.settings import ApimServiceConfig, Settings, UnknownServiceAliasError
@@ -201,6 +217,12 @@ def register_config_tools(
     mcp: FastMCP[Any], registry: list[ToolRegistration], settings: Settings
 ) -> None:
     """Register the Group B API-configuration tools against `mcp`."""
+
+    # One cache per running server, keyed to `settings.index_ttl_seconds`
+    # (§6 Group B: "Cache the fetched document ... for INDEX_TTL_SECONDS").
+    # Never module-level - a fresh process must not inherit another
+    # process's (or another test's) cached documents.
+    spec_cache = SpecDocumentCache(ttl_seconds=settings.index_ttl_seconds)
 
     @audited_tool(mcp, registry, name="apim_list_apis")
     async def apim_list_apis(
@@ -474,3 +496,59 @@ def register_config_tools(
             max_bytes=settings.max_response_bytes,
             narrow_param="limit",
         )
+
+    @audited_tool(mcp, registry, name="apim_get_api_spec")
+    async def apim_get_api_spec(
+        *,
+        ctx: CallContext,
+        service: str,
+        api_id: str,
+        format: SpecFormat = "openapi_json",  # noqa: A002 - matches docs/SPEC.md §6 param name
+        mode: SpecMode = "summary",
+        response_format: ResponseFormat = "markdown",
+    ) -> dict[str, Any] | ToolError:
+        """Export an API's OpenAPI/Swagger definition.
+
+        Two ARM-adjacent calls happen behind this: an authenticated export
+        request, then an unauthenticated fetch of the SAS-secured blob link
+        it returns - see `apim_mcp.clients.apim` for why. Some API types
+        (SOAP passthrough, GraphQL) cannot be exported; that surfaces here
+        as a typed error, not a crash.
+
+        `mode="summary"` (default) returns `info`, `servers`, security
+        scheme *names*, and a compact per-path listing of `method`,
+        `operationId`, `summary`, and parameter names - enough to fit in a
+        model's context. `mode="full"` returns the complete parsed
+        document, subject to the size ceiling; over it, returns the
+        summary instead with `truncated: true`. The fetched document (not
+        the export link, which is only valid for five minutes) is cached
+        per caller for `INDEX_TTL_SECONDS`.
+        """
+        config = _resolve_service(settings, service)
+        if config is None:
+            return invalid_input("service", _UNKNOWN_SERVICE_HINT)
+
+        cache_key = SpecCacheKey(oid=ctx.oid, service=service, api_id=api_id, format=format)
+        document = spec_cache.get(cache_key)
+        if document is None:
+            resource_id = f"{config.resource_id}/apis/{api_id}"
+            fetched = await fetch_spec_document(ctx, resource_id, format=format)
+            if isinstance(fetched, ToolError):
+                return fetched
+            document = fetched
+            spec_cache.put(cache_key, document)
+
+        if mode == "full":
+            full_payload = {"format": format, "mode": "full", "document": document}
+            if len(render_json(full_payload).encode("utf-8")) <= settings.max_response_bytes:
+                return full_payload
+            summary_payload = {"format": format, "mode": "summary", **spec_summary(document)}
+            summary_payload["truncated"] = True
+            summary_payload["hint"] = (
+                "The full document exceeds the size limit; returning the summary instead. "
+                "Narrow to a single operation via `apim_get_api`, or fetch the full spec "
+                "through the Azure Portal."
+            )
+            return summary_payload
+
+        return {"format": format, "mode": "summary", **spec_summary(document)}

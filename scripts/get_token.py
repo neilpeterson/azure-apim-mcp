@@ -25,7 +25,6 @@ MCP_JSON_PATH = Path(__file__).resolve().parent.parent / ".vscode" / "mcp.json"
 def main() -> None:
     settings = get_settings()
     tenant_id = settings.azure_tenant_id
-    app_id = settings.mcp_server_app_id
     audience = settings.mcp_server_audience
 
     # The client app ID — must match the pre-authorized client on the server
@@ -52,8 +51,7 @@ def main() -> None:
 
     if "access_token" not in result:
         print(
-            f"Token acquisition failed: {result.get('error')}: "
-            f"{result.get('error_description')}",
+            f"Token acquisition failed: {result.get('error')}: {result.get('error_description')}",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -66,7 +64,11 @@ def main() -> None:
         "servers": {
             "apim": {
                 "type": "http",
-                "url": f"{audience.rstrip('/')}" if audience.startswith("http") else f"http://localhost:8000/mcp",
+                "url": (
+                    f"{audience.rstrip('/')}"
+                    if audience.startswith("http")
+                    else "http://localhost:8000/mcp"
+                ),
                 "headers": {"Authorization": f"Bearer {token}"},
             }
         }
