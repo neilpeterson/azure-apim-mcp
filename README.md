@@ -33,8 +33,7 @@ surface, and none of the APIM control plane.
 All tools are read-only, take a `response_format: "markdown" | "json"` parameter, and
 never return secrets (subscription keys, named-value secrets, certificates, backend
 credentials) — see `docs/PRINCIPLES.md` §4/§5. This list reflects what's implemented
-today; the full catalogue (Groups C and D — search, metrics, gateway logs) is tracked
-in `TASKS.md`.
+today; the full catalogue (Group D — metrics, gateway logs) is tracked in `TASKS.md`.
 
 ### Group A — Service discovery
 
@@ -56,6 +55,13 @@ in `TASKS.md`.
 | `apim_list_backends` | Backends: id, name, url, protocol, title, TLS settings. Never `credentials`. |
 | `apim_list_named_values` | Named values: name, displayName, tags, `secret` flag. Returns `value` only when `secret` is `false`. |
 | `apim_list_subscriptions` | Subscriptions: id, displayName, scope, state, owner. Never `primaryKey`/`secondaryKey`. |
+
+### Group C — Search
+
+| Tool | Returns |
+|---|---|
+| `apim_search_apis` | Lexical (BM25) search over an in-memory index of API/operation names, descriptions, URL paths, parameter names, and OpenAPI schema property names, across all configured instances. Not semantic — the tool description instructs the model to supply its own synonyms via `terms`. Ranked hits include `matchedFields` and a `snippet`; a weak match is still returned but flagged `lowConfidence: true`. See `docs/SEARCH_INDEX.md`. |
+| `apim_refresh_index` | Forces an immediate rebuild of the search index for one or all services, rather than waiting out the TTL-based background refresh. Rate-limited to one call per service per 60 seconds. |
 
 
 ## Quick start — connect to a deployed server
