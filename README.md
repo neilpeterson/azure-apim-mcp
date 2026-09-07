@@ -49,8 +49,9 @@ in `TASKS.md`.
 | Tool | Returns |
 |---|---|
 | `apim_list_apis` | APIs on one instance (current revisions by default): id, name, path, protocols, revision info, subscription requirement. Supports `filter`, `include_revisions`, `limit`/`offset`. |
-| `apim_get_api` | One API's full entity plus its operations (method, URL template, description). Truncates at 100 operations with a hint to use `apim_get_api_spec` (roadmap). |
+| `apim_get_api` | One API's full entity plus its operations (method, URL template, description). Truncates at 100 operations with a hint to use `apim_get_api_spec`. |
 | `apim_get_policy` | Policy XML at `global`/`api`/`operation`/`product` scope, with sensitive header values and high-entropy secrets redacted (`docs/SPEC.md` §8.2). `{{named-value}}` references are preserved. |
+| `apim_get_api_spec` | An API's OpenAPI/Swagger definition. `mode="summary"` (default) returns info, servers, security scheme names, and a compact path listing; `mode="full"` returns the parsed document (JSON or YAML), falling back to a truncated summary if it exceeds the response size ceiling. |
 | `apim_list_products` | Products: id, name, description, subscription/approval requirements, state. |
 | `apim_list_backends` | Backends: id, name, url, protocol, title, TLS settings. Never `credentials`. |
 | `apim_list_named_values` | Named values: name, displayName, tags, `secret` flag. Returns `value` only when `secret` is `false`. |
