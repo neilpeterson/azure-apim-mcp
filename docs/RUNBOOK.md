@@ -175,11 +175,23 @@ az monitor metrics list-definitions --resource <apim-resource-id> `
 
 **Available metrics:** _pending_
 
+### `format=rawxml` returns bare XML, not a JSON-wrapped `PolicyContract`
+
+**Confirmed 2026-09-06** against `apim-api-gateway-msft-lab` (rg `rg-sc-api-gateway-msft-lab`).
+
+The ARM REST reference for `Policy - Get` / `ApiPolicy - Get` documents `.../policies/policy?format=rawxml&api-version=2024-05-01` as returning `200 OK` with a JSON `PolicyContract` body (`properties.value` holding the XML, `properties.format: "rawxml"`). In practice this instance returns the policy as a **bare XML document** with no JSON envelope at all — `response.json()` fails immediately with `JSONDecodeError: Expecting value: line 1 column 1 (char 0)` because the body starts with `<`.
+
+`apim_get_policy` (T-13, `src/apim_mcp/tools/config.py`) now uses `ArmClient.get_text()` and a shape-tolerant `_extract_policy_xml()` helper that accepts either the documented JSON wrapper or bare XML. If a future `apim_*` tool needs another endpoint whose body might not reliably be JSON, use `get_text()` there too rather than assuming the REST reference's sample response is what you'll actually get back.
+
+### ARM transport-level failures were not retried
+
+**Confirmed 2026-09-06.** `ArmClient`'s retry policy (`docs/SPEC.md` §5.2: "Retry on 429 and 5xx") only matched HTTP status codes. A connection-level blip (`httpx.ConnectError`, `ReadTimeout`, etc. — no HTTP response at all) skipped every retry attempt and surfaced as a bare `upstream_error` after a single failed attempt, which looked identical to a real bug: the tool failed immediately while a fresh manual request (e.g. `az rest`) made moments later succeeded, because it simply landed after the blip passed.
+
+Fixed by also retrying `httpx.TransportError` with the same exponential backoff, up to the existing attempt cap (`src/apim_mcp/clients/arm.py`).
+
 ---
 
 ## Deployment
-
-### Egress dependencies
 
 The Container App needs outbound HTTPS to:
 
@@ -224,3 +236,5 @@ Test with the agent type the internal SPI platform actually hosts, and record wh
 | 2026-09-05 | Tenant identified as MSIT; `serviceManagementReference` mandatory on all app registrations |
 | 2026-09-05 | User consent policy is `-low`; OBO delegated permissions likely require admin consent |
 | 2026-09-05 | H-02 deferred as non-blocking; phase 1 relies on the `roles` claim check |
+| 2026-09-06 | `apim-api-gateway-msft-lab`'s `.../policies/policy?format=rawxml` returns bare XML, not the documented JSON-wrapped `PolicyContract`; `apim_get_policy` now handles both shapes |
+| 2026-09-06 | `ArmClient` did not retry `httpx.TransportError` (connection/timeout blips), only HTTP 429/5xx; now retries both |
