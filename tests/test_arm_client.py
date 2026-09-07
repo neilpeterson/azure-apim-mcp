@@ -61,6 +61,29 @@ async def test_get_returns_parsed_body() -> None:
     assert result == {"name": "apim-fixture"}
 
 
+async def test_get_returns_upstream_error_for_non_json_200() -> None:
+    """A 200 with a body that isn't valid JSON must become a `ToolError`,
+    not raise `json.JSONDecodeError` out of the handler
+    (docs/PRINCIPLES.md §8)."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text="<not-json/>")
+
+    client = _client(handler)
+    result = await client.get(RESOURCE_ID)
+    assert isinstance(result, ToolError)
+    assert result.kind == "upstream_error"
+
+
+async def test_get_text_returns_raw_body_even_when_not_json() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text="<policies><inbound /></policies>")
+
+    client = _client(handler)
+    result = await client.get_text(RESOURCE_ID)
+    assert result == "<policies><inbound /></policies>"
+
+
 async def test_follows_next_link() -> None:
     call_count = 0
 
@@ -218,7 +241,7 @@ def test_no_mutating_http_methods_are_issued() -> None:
 
 def test_public_api_surface_is_read_only() -> None:
     public_methods = {name for name in dir(ArmClient) if not name.startswith("_")}
-    assert public_methods == {"get", "list_all"}
+    assert public_methods == {"get", "get_text", "list_all"}
 
 
 def test_arm_client_does_not_store_a_persistent_http_client() -> None:

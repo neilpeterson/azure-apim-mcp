@@ -10,6 +10,7 @@ read but which may embed secrets" case `docs/PRINCIPLES.md` §5 describes.
 
 from __future__ import annotations
 
+import json
 from typing import Any, Literal
 
 from mcp.server.fastmcp import FastMCP
@@ -173,6 +174,29 @@ def _policy_resource_id(
     return f"{base}/products/{product_id}/policies/policy"
 
 
+def _extract_policy_xml(raw_text: str) -> str | None:
+    """`.../policies/policy?format=rawxml` is documented as returning a
+    JSON-wrapped `PolicyContract` (`properties.value` holding the XML), but
+    in practice ARM returns the policy as a bare XML document for this
+    format - handle both rather than assuming the documented shape.
+    Returns `None` if `raw_text` is empty or an unrecognisable JSON shape.
+    """
+    stripped = raw_text.strip()
+    if not stripped:
+        return None
+    if stripped[0] != "{":
+        return raw_text
+    try:
+        body = json.loads(stripped)
+    except ValueError:
+        return None
+    if not isinstance(body, dict):
+        return None
+    properties = body.get("properties") or {}
+    value = properties.get("value")
+    return value if isinstance(value, str) else None
+
+
 def register_config_tools(
     mcp: FastMCP[Any], registry: list[ToolRegistration], settings: Settings
 ) -> None:
@@ -306,20 +330,16 @@ def register_config_tools(
         resource_id = resource_id_or_error
 
         client = ArmClient(ctx)
-        body = await client.get(
+        raw = await client.get_text(
             resource_id, api_version=_API_VERSION, params={"format": "rawxml"}
         )
-        if isinstance(body, ToolError):
-            if body.kind == "not_found":
+        if isinstance(raw, ToolError):
+            if raw.kind == "not_found":
                 return not_found("policy", scope, service)
-            return body
-        if not isinstance(body, dict):
-            detail = f"apim_get_policy: {service}/{scope}: unexpected shape"
-            return upstream_error(log_detail=detail)
+            return raw
 
-        properties = body.get("properties") or {}
-        policy_xml = properties.get("value")
-        if not isinstance(policy_xml, str):
+        policy_xml = _extract_policy_xml(raw)
+        if policy_xml is None:
             return upstream_error(
                 log_detail=f"apim_get_policy: {service}/{scope}: no policy XML in response"
             )

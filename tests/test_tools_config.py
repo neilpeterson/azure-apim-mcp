@@ -393,6 +393,37 @@ def test_get_policy_redacts_secrets_and_preserves_named_values(
     assert "{{my-value}}" in payload["policyXml"]
 
 
+def test_get_policy_handles_bare_xml_response(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`format=rawxml` is documented as returning a JSON-wrapped
+    `PolicyContract`, but in practice ARM has been observed returning the
+    policy as a bare XML document with no JSON envelope at all - this must
+    not crash `response.json()` (regression test for the `JSONDecodeError:
+    Expecting value: line 1 column 1 (char 0)` bug)."""
+    policy_xml = (
+        '<policies><inbound><set-header name="Authorization" exists-action="override">'
+        "<value>abcSECRETtoken1234567890</value></set-header>"
+        "<set-header name=\"X-Named\" exists-action=\"override\">"
+        "<value>{{my-value}}</value></set-header>"
+        "</inbound></policies>"
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.params.get("format") == "rawxml"
+        return httpx.Response(200, text=policy_xml, headers={"content-type": "application/xml"})
+
+    app, _registry, _settings_obj = _build_app(monkeypatch, transport=httpx.MockTransport(handler))
+    with TestClient(app) as client:
+        response = _call_tool(
+            client,
+            "apim_get_policy",
+            {"service": "prod", "scope": "global", "response_format": "json"},
+        )
+    payload = json.loads(_result_text(response))
+    assert "abcSECRETtoken1234567890" not in payload["policyXml"]
+    assert "[REDACTED:sensitive-header]" in payload["policyXml"]
+    assert "{{my-value}}" in payload["policyXml"]
+
+
 @pytest.mark.parametrize(
     ("scope", "arguments"),
     [

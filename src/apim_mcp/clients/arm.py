@@ -122,8 +122,40 @@ class ArmClient:
         response = await self._send(resource_id, api_version=api_version, params=params)
         if isinstance(response, ToolError):
             return response
-        parsed: dict[str, Any] | list[Any] = response.json()
+        try:
+            parsed: dict[str, Any] | list[Any] = response.json()
+        except ValueError:
+            # A 200 with a body that isn't valid JSON is still an ARM
+            # contract violation from this client's point of view - never
+            # let it raise out of a tool handler (docs/PRINCIPLES.md §8).
+            # Callers that expect a non-JSON body for a given resource
+            # (e.g. `format=rawxml` policy exports) must use `get_text`
+            # instead of `get`.
+            return upstream_error(
+                log_detail=(
+                    f"non-JSON 200 response from ARM for {resource_id}: "
+                    f"{response.text[:500]!r}"
+                )
+            )
         return parsed
+
+    async def get_text(
+        self,
+        resource_id: str,
+        *,
+        api_version: str = DEFAULT_API_VERSION,
+        params: Mapping[str, str] | None = None,
+    ) -> str | ToolError:
+        """GET one resource as raw text, for endpoints that may not return
+        JSON regardless of what the ARM REST reference documents - e.g.
+        `.../policies/policy?format=rawxml` in practice returns the policy
+        as a bare XML document rather than a JSON-wrapped `PolicyContract`,
+        despite the published sample response. Use this instead of `get`
+        whenever the response is not reliably JSON."""
+        response = await self._send(resource_id, api_version=api_version, params=params)
+        if isinstance(response, ToolError):
+            return response
+        return response.text
 
     async def list_all(
         self,
