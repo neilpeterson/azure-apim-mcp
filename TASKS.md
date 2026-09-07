@@ -256,12 +256,12 @@ Split camelCase, PascalCase, snake_case, kebab-case, and URL path segments. This
 `apim_list_apis`, `apim_get_api`, `apim_get_policy`, `apim_list_products`, `apim_list_backends`, `apim_list_named_values`, `apim_list_subscriptions`.
 
 **Done when:**
-- [ ] `test_named_values_never_returns_values` — secret entries expose name and flag only
-- [ ] `test_subscriptions_never_return_keys`
-- [ ] `test_backends_omit_credentials`
-- [ ] `test_list_apis_excludes_revisions_by_default`
-- [ ] Tool descriptions state explicitly what is *not* returned
-- [ ] Policy output passes through T-11 redaction
+- [x] `test_named_values_never_returns_values` — secret entries expose name and flag only
+- [x] `test_subscriptions_never_return_keys`
+- [x] `test_backends_omit_credentials`
+- [x] `test_list_apis_excludes_revisions_by_default`
+- [x] Tool descriptions state explicitly what is *not* returned
+- [x] Policy output passes through T-11 redaction
 
 ---
 

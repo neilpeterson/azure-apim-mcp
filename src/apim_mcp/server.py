@@ -329,12 +329,14 @@ def create_app(
     the startup canary. Imports `apim_mcp.tools` lazily (rather than at
     module scope) since those modules import `audited_tool`/`ToolRegistration`
     from here — a module-level import would be circular."""
+    from apim_mcp.tools.config import register_config_tools
     from apim_mcp.tools.discovery import register_discovery_tools
 
     resolved_settings = settings or get_settings()
     mcp = create_mcp(resolved_settings, allowed_hosts=allowed_hosts)
     registry: list[ToolRegistration] = []
     register_discovery_tools(mcp, registry, resolved_settings)
+    register_config_tools(mcp, registry, resolved_settings)
     app = wrap_with_middleware(mcp, resolved_settings)
     return _StartupCanaryApp(app, resolved_settings)
 
