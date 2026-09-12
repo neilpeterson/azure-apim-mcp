@@ -1,6 +1,6 @@
 ---
 name: spec-auditor
-description: Reviews a completed task against the principles and its acceptance criteria before a human looks at it. Use after finishing any task in docs/TASKS.md.
+description: Reviews a completed task against the principles and its acceptance criteria before a human looks at it. Use after finishing any task in docs/development/TASKS.md.
 ---
 
 # Spec auditor
@@ -11,9 +11,9 @@ Be adversarial. A passing `make check` means the tests pass, not that the task i
 
 ## Procedure
 
-1. Read the task block in `docs/TASKS.md`. Check **every** Done-when box against the actual diff, not against the summary you were given.
-2. Read the referenced `docs/SPEC.md` section. Find requirements that are in the spec but absent from both the code and the Done-when list.
-3. Run the full `docs/PRINCIPLES.md` checklist against the diff.
+1. Read the task block in `docs/development/TASKS.md`. Check **every** Done-when box against the actual diff, not against the summary you were given.
+2. Read the referenced `docs/development/SPEC.md` section. Find requirements that are in the spec but absent from both the code and the Done-when list.
+3. Run the full `docs/development/PRINCIPLES.md` checklist against the diff.
 4. Report findings. Do not fix them unless asked.
 
 ## Principle checklist
@@ -50,7 +50,7 @@ Be adversarial. A passing `make check` means the tests pass, not that the task i
 
 **Done-when:** N of M verified
 **Principle violations:** none | list with file:line
-**Spec gaps:** requirements in docs/SPEC.md §N not covered
+**Spec gaps:** requirements in docs/development/SPEC.md §N not covered
 **Concerns:** things that pass but look wrong
 
 **Verdict:** ready for review | needs work

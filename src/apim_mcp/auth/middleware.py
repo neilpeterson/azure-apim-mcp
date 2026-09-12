@@ -1,4 +1,4 @@
-"""ASGI token-validation middleware. See `docs/SPEC.md` §4.4.
+"""ASGI token-validation middleware. See `docs/development/SPEC.md` §4.4.
 
 Validates, in order: bearer header present, signature against cached JWKS,
 `iss`, `aud` (exactly one configured value — never a list), `exp`/`nbf`
@@ -14,6 +14,7 @@ both need it, and retrofitting request-scoped access later is painful.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from collections.abc import Callable, Mapping
@@ -34,9 +35,9 @@ OAUTH_PROTECTED_RESOURCE_PATH = "/.well-known/oauth-protected-resource"
 # RFC 9728 §3.1: a client may request the path-suffixed variant
 # (`<well-known>/mcp`) instead of the root path, since the protected
 # resource lives at `/mcp` rather than at the origin's root. See
-# `docs/SPEC.md` §10.2 - serve both, identically.
+# `docs/development/SPEC.md` §10.2 - serve both, identically.
 OAUTH_PROTECTED_RESOURCE_MCP_PATH = OAUTH_PROTECTED_RESOURCE_PATH + MCP_PATH
-# Workaround for a known VS Code MCP client bug (`docs/SPEC.md` §10.2.1):
+# Workaround for a known VS Code MCP client bug (`docs/development/SPEC.md` §10.2.1):
 # when an authorization server's issuer URL has a path component (Entra's
 # always does - `/<tenant>/v2.0`), VS Code drops the path when building
 # its own discovery URL and queries these two well-known paths at *our*
@@ -45,7 +46,7 @@ OAUTH_PROTECTED_RESOURCE_MCP_PATH = OAUTH_PROTECTED_RESOURCE_PATH + MCP_PATH
 # `/authorize`/`/token`/`/register`) so that fallback still lands on Entra.
 OAUTH_AUTHORIZATION_SERVER_PATH = "/.well-known/oauth-authorization-server"
 OPENID_CONFIGURATION_PATH = "/.well-known/openid-configuration"
-# The delegated scope this server exposes (`docs/SPEC.md` §4.3) - fixed by
+# The delegated scope this server exposes (`docs/development/SPEC.md` §4.3) - fixed by
 # this project's own design, not deployment-specific, so it lives here as
 # a constant rather than a `Settings` field.
 MCP_DELEGATED_SCOPE = "Mcp.Tools.Read"
@@ -63,7 +64,7 @@ def entra_issuer(tenant_id: str) -> str:
     """The Entra v2 issuer URL for `tenant_id` - the single source of truth
     for both `TokenValidationMiddleware`'s expected `iss` and the
     `authorization_servers` entry in `/.well-known/oauth-protected-resource`
-    (`docs/SPEC.md` §10.2), so the two can never drift apart."""
+    (`docs/development/SPEC.md` §10.2), so the two can never drift apart."""
     return f"https://login.microsoftonline.com/{tenant_id}/v2.0"
 
 
@@ -131,11 +132,30 @@ class AuthorizationServerMetadataCache:
     """Caches Entra's real, unmodified OIDC discovery document.
 
     Exists solely to work around a VS Code MCP client bug (see
-    `OAUTH_AUTHORIZATION_SERVER_PATH` above and `docs/SPEC.md` §10.2.1):
+    `OAUTH_AUTHORIZATION_SERVER_PATH` above and `docs/development/SPEC.md` §10.2.1):
     we serve this verbatim at our own well-known paths, never a fabricated
     document, and never implement `/authorize`/`/token`/`/register`
     ourselves - the endpoints named inside the cached document still point
     straight at `login.microsoftonline.com`.
+
+    **Fetch-once by design.** §10.2.1 specifies a document "fetched once ...
+    and cached", and that is the whole contract: the first `get_document()`
+    fetches, every later call is served from memory. There is deliberately
+    no refresh clock, interval, or timestamp here - unlike `JWKSCache`,
+    whose rate limit does real work because it genuinely re-enters the fetch
+    on every unknown `kid`. Since this fetch is guarded on "no document
+    cached yet", a refresh interval could never fire once a document is
+    cached; it would be inert machinery that merely looks like a safety
+    control. Do not add one back.
+
+    A *failed* fetch is deliberately not cached: with no refresh path, a
+    remembered failure would 503 the mirror for the life of the process. The
+    lock keeps the cold-start retry single-flight instead of a stampede.
+
+    Not keyed by caller `oid` (Principle 3) because it holds no
+    caller-derived Azure data - this is the authorization server's own public
+    discovery document, identical for every caller, served from
+    unauthenticated routes. That stays true under on-behalf-of.
     """
 
     def __init__(
@@ -143,27 +163,30 @@ class AuthorizationServerMetadataCache:
         tenant_id: str,
         *,
         transport: httpx.AsyncBaseTransport | None = None,
-        clock: Callable[[], float] = time.monotonic,
-        min_refresh_interval: float = 3600.0,
     ) -> None:
         self._uri = (
             f"https://login.microsoftonline.com/{tenant_id}/v2.0/.well-known/openid-configuration"
         )
         self._transport = transport
-        self._clock = clock
-        self._min_refresh_interval = min_refresh_interval
         self._document: dict[str, Any] | None = None
-        self._last_refresh: float | None = None
+        self._lock = asyncio.Lock()
 
     async def get_document(self) -> dict[str, Any] | None:
-        if self._document is None:
-            await self._maybe_refresh()
+        """Entra's discovery document, or `None` if it could not be fetched.
+
+        `None` becomes a 503 at the route (§8 - errors are results, not
+        exceptions); it is never raised.
+        """
+        if self._document is not None:
+            return self._document
+        async with self._lock:
+            # Re-check under the lock: a caller that queued here may have
+            # been waiting on the very fetch that populated the cache.
+            if self._document is None:
+                await self._fetch()
         return self._document
 
-    async def _maybe_refresh(self) -> None:
-        now = self._clock()
-        if self._last_refresh is not None and now - self._last_refresh < self._min_refresh_interval:
-            return
+    async def _fetch(self) -> None:
         try:
             async with httpx.AsyncClient(transport=self._transport, timeout=10.0) as client:
                 response = await client.get(self._uri)
@@ -171,10 +194,10 @@ class AuthorizationServerMetadataCache:
         except httpx.HTTPError:
             # §8: errors are results, not exceptions - a transient fetch
             # failure must not crash the request; the caller falls back to
-            # a 503 rather than propagating.
+            # a 503 rather than propagating. Leaving the cache empty is what
+            # lets the next request heal the mirror once Entra is back.
             return
         self._document = response.json()
-        self._last_refresh = now
 
 
 async def _send_json(

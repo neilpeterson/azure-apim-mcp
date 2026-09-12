@@ -1,4 +1,4 @@
-"""The OpenAPI/Swagger export flow (T-14). See `docs/SPEC.md` §6 Group B
+"""The OpenAPI/Swagger export flow (T-14). See `docs/development/SPEC.md` §6 Group B
 `apim_get_api_spec` - "the tool with the most implementation gotchas".
 
 Two ARM-adjacent calls, not one:
@@ -14,11 +14,11 @@ Two ARM-adjacent calls, not one:
 
 The SAS is valid for five minutes, so step 1's link is never cached -
 only the fetched document is, keyed by `(oid, service, api_id, format)`
-per `docs/PRINCIPLES.md` §3. If the blob fetch fails (most likely an
+per `docs/development/PRINCIPLES.md` §3. If the blob fetch fails (most likely an
 expired SAS - the export call and the fetch are not atomic), re-export
 once and retry rather than failing outright.
 
-**Documented vs. actual response shape:** `docs/SPEC.md` §6 documents the
+**Documented vs. actual response shape:** `docs/development/SPEC.md` §6 documents the
 export response as `{"format": "...", "value": {"link": "..."}}`, but a
 real APIM instance returns a bare `{"link": "..."}` (see
 `tests/fixtures/api_export_echo-api.json`, recorded from a non-prod
@@ -39,16 +39,15 @@ import httpx
 import yaml
 
 from apim_mcp.auth.context import CallContext
-from apim_mcp.clients.arm import ArmClient
+from apim_mcp.clients.arm import DEFAULT_API_VERSION, ArmClient
 from apim_mcp.common.errors import ToolError, upstream_error
 
 SpecFormat = Literal["openapi_json", "openapi_yaml", "swagger_json"]
 SpecMode = Literal["summary", "full"]
 
-_API_VERSION = "2024-05-01"
 
 # Maps our public `format` literal to the ARM `export=true&format=` value,
-# per docs/SPEC.md §6 Group B.
+# per docs/development/SPEC.md §6 Group B.
 _EXPORT_FORMAT_PARAM: dict[SpecFormat, str] = {
     "openapi_json": "openapi+json-link",
     "openapi_yaml": "openapi-link",
@@ -65,7 +64,7 @@ _MAX_EXPORT_ATTEMPTS = 2
 @dataclass(frozen=True)
 class SpecCacheKey:
     """Cache key for a fetched spec document. Always carries `oid`
-    (docs/PRINCIPLES.md §3), even though v1's shared managed identity
+    (docs/development/PRINCIPLES.md §3), even though v1's shared managed identity
     means every caller would otherwise see the same document."""
 
     oid: str
@@ -128,7 +127,7 @@ def _parse_document(raw_text: str, *, format: SpecFormat) -> dict[str, Any] | No
 
 
 def spec_summary(document: dict[str, Any]) -> dict[str, Any]:
-    """`mode="summary"` per docs/SPEC.md §6 Group B: `info`, `servers`,
+    """`mode="summary"` per docs/development/SPEC.md §6 Group B: `info`, `servers`,
     security scheme *names* (never the schemes themselves - they can embed
     flow URLs but never secrets, this is purely about keeping the output
     compact), and a compact per-path listing of `method`, `operationId`,
@@ -175,13 +174,13 @@ async def _export_link(
     ctx: CallContext,
     resource_id: str,
     *,
-    format: SpecFormat,  # noqa: A002 - matches docs/SPEC.md §6 param name
+    format: SpecFormat,  # noqa: A002 - matches docs/development/SPEC.md §6 param name
     arm_transport: httpx.AsyncBaseTransport | None,
 ) -> str | ToolError:
     arm_client = ArmClient(ctx, transport=arm_transport)
     body = await arm_client.get(
         resource_id,
-        api_version=_API_VERSION,
+        api_version=DEFAULT_API_VERSION,
         params={"export": "true", "format": _EXPORT_FORMAT_PARAM[format]},
     )
     if isinstance(body, ToolError):
@@ -222,7 +221,7 @@ async def fetch_spec_document(
     ctx: CallContext,
     resource_id: str,
     *,
-    format: SpecFormat,  # noqa: A002 - matches docs/SPEC.md §6 param name
+    format: SpecFormat,  # noqa: A002 - matches docs/development/SPEC.md §6 param name
     arm_transport: httpx.AsyncBaseTransport | None = None,
     blob_transport: httpx.AsyncBaseTransport | None = None,
 ) -> dict[str, Any] | ToolError:

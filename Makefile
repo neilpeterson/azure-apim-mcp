@@ -2,7 +2,7 @@
 
 # --no-sync: never touch the network on a plain `make check`/`make run`. The
 # venv is expected to already satisfy pyproject.toml; run `uv sync` by hand
-# after adding/upgrading a dependency (see docs/LOCAL_TESTING.md).
+# after adding/upgrading a dependency (see docs/development/LOCAL_TESTING.md).
 UV := uv run --no-sync
 
 # The gate. No task is complete until this passes.

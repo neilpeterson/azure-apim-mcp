@@ -5,7 +5,7 @@
 # an environment-specific parameter file copied from
 # infra/container-registry/bicep-params/example.bicepparam first. Hydrate that
 # registry with a real image before provisioning the Container App. See
-# docs/DEPLOYMENT.md for the full first-deployment sequence and current
+# docs/operations/DEPLOYMENT.md for the full first-deployment sequence and current
 # `azd up` limitation.
 name: apim-mcp
 metadata:

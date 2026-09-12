@@ -1,4 +1,4 @@
-"""Group C tools: search over the API index (T-16). See docs/SPEC.md §6
+"""Group C tools: search over the API index (T-16). See docs/development/SPEC.md §6
 Group C and §7.4.
 
 Both tools are thin wrappers over `IndexManager` (`apim_mcp.index.search`):
@@ -15,25 +15,14 @@ from typing import Any, Literal
 from mcp.server.fastmcp import FastMCP
 
 from apim_mcp.auth.context import CallContext
-from apim_mcp.common.errors import ToolError, invalid_input
+from apim_mcp.common.errors import ToolError
 from apim_mcp.common.formatting import ResponseFormat
 from apim_mcp.index.search import IndexManager
 from apim_mcp.server import ToolRegistration, audited_tool
-from apim_mcp.settings import Settings, UnknownServiceAliasError
+from apim_mcp.settings import Settings
+from apim_mcp.tools._common import resolve_service
 
 SearchScope = Literal["operations", "apis", "both"]
-
-_UNKNOWN_SERVICE_HINT = "one of the aliases configured in APIM_SERVICES - see apim_list_services"
-
-
-def _validate_service(settings: Settings, service: str | None) -> ToolError | None:
-    if service is None:
-        return None
-    try:
-        settings.service(service)
-    except UnknownServiceAliasError:
-        return invalid_input("service", _UNKNOWN_SERVICE_HINT)
-    return None
 
 
 def register_search_tools(
@@ -69,12 +58,13 @@ def register_search_tools(
         confident answer", not as a real match.
         """
         # OBO: this reads one index shared by every caller
-        # (docs/PRINCIPLES.md §3's one exception) - `ctx` is threaded
+        # (docs/development/PRINCIPLES.md §3's one exception) - `ctx` is threaded
         # through for the eventual post-filter-by-read-access mitigation,
         # not to key a per-caller index.
-        error = _validate_service(settings, service)
-        if error is not None:
-            return error
+        if service is not None:
+            resolved = resolve_service(settings, service)
+            if isinstance(resolved, ToolError):
+                return resolved
         result = await index_manager.search(
             ctx, query=query, terms=terms, service=service, scope=scope, limit=limit
         )
@@ -97,8 +87,9 @@ def register_search_tools(
         """
         # OBO: rebuilds the one shared-across-callers index - see the note
         # on apim_search_apis above.
-        error = _validate_service(settings, service)
-        if error is not None:
-            return error
+        if service is not None:
+            resolved = resolve_service(settings, service)
+            if isinstance(resolved, ToolError):
+                return resolved
         result = await index_manager.refresh(ctx, service=service)
         return result

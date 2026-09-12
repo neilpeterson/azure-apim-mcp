@@ -1,6 +1,6 @@
-"""Tests for docs/SPEC.md §8.2 (redaction) and §8.3 (prompt injection wrapping).
+"""Tests for docs/development/SPEC.md §8.2 (redaction) and §8.3.
 
-Enforces docs/PRINCIPLES.md §9 via `test_untrusted_content_is_wrapped`.
+Enforces docs/development/PRINCIPLES.md §9 via `test_untrusted_content_is_wrapped`.
 """
 
 from __future__ import annotations
@@ -188,3 +188,11 @@ def test_redact_free_text_redacts_high_entropy_and_preserves_named_values() -> N
     assert "{{support-doc}}" in result
     assert long_hex not in result
     assert "[REDACTED:high-entropy-hex]" in result
+
+
+def test_redact_free_text_optionally_strips_url_query_strings() -> None:
+    result = redact_free_text(
+        "backend failed at https://api.example/orders?subscription-key=secret",
+        strip_urls=True,
+    )
+    assert result == "backend failed at https://api.example/orders"

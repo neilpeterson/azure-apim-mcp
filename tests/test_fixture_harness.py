@@ -1,6 +1,6 @@
 """Tests for the fixture recorder/replay harness (T-07).
 
-See docs/PRINCIPLES.md and tests/fixtures/README.md. No test in this file
+See docs/development/PRINCIPLES.md and tests/fixtures/README.md. No test in this file
 (or anywhere else in the suite) is allowed to touch the network - that is
 enforced globally by the `_block_network` autouse fixture in conftest.py.
 """

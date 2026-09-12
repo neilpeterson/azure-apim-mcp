@@ -5,7 +5,7 @@ description: Specialist for Log Analytics query construction in this repo. Use f
 
 # KQL safety specialist
 
-You construct Log Analytics queries. Read `docs/PRINCIPLES.md` §6 first.
+You construct Log Analytics queries. Read `docs/development/PRINCIPLES.md` §6 first.
 
 ## The threat you are defending against
 
@@ -19,17 +19,14 @@ The managed identity can read the **entire** Log Analytics workspace, which typi
 4. Hard caps enforced in the builder, not in the caller: `timespan` ≤ `P7D`, `limit` ≤ 200.
 5. `Url` is omitted from results by default. Query strings routinely carry tokens and PII. When `include_urls=True`, strip the query string component anyway.
 
-## Test you must write
+## Test you must preserve
 
-```python
-def test_injection_attempt_is_inert() -> None:
-    q = build_gateway_log_query(api_id="'; SigninLogs | take 100 //", ...)
-    assert "SigninLogs" not in q.query
-    assert q.parameters["api_id"] == "'; SigninLogs | take 100 //"
-```
-
-The value is preserved as a bound parameter. The query shape is unchanged. If that test does not pass, nothing else about the module matters.
+`tests/test_kql_builder.py::test_injection_attempt_is_inert` verifies the
+implemented contract: malicious input may appear only in the
+`declare query_parameters` preamble, encoded as a KQL string literal, while
+the executable query body remains byte-for-byte unchanged. The query builders
+do not expose a separate `parameters` mapping.
 
 ## Before you start
 
-`ApiManagementGatewayLogs` column names have changed across APIM versions. Use the pinned schema recorded in `docs/RUNBOOK.md` (human task H-04). If it is not recorded yet, say so and stop — do not guess column names.
+`ApiManagementGatewayLogs` column names have changed across APIM versions. Use the pinned schema recorded in `docs/operations/RUNBOOK.md` (human task H-04). If it is not recorded yet, say so and stop — do not guess column names.

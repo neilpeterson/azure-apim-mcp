@@ -1,6 +1,6 @@
 """Tests for `apim_mcp.index.search` and `apim_mcp.tools.search` (T-16).
 
-See docs/SPEC.md §6 Group C and §7.4.
+See docs/development/SPEC.md §6 Group C and §7.4.
 """
 
 from __future__ import annotations

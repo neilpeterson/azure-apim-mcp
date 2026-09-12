@@ -1,22 +1,38 @@
 """Tests for src/apim_mcp/server.py and src/apim_mcp/common/telemetry.py (T-09).
 
-See docs/SPEC.md §9 (audit event) and §4.2 (permission canary).
+See docs/development/SPEC.md §9 (audit event) and §4.2 (permission canary).
 """
 
 from __future__ import annotations
 
 import json
 import logging
-import time
 from typing import Any
 
 import httpx
-import jwt
 import pytest
-from cryptography.hazmat.primitives.asymmetric import rsa
 from starlette.testclient import TestClient
 
 import apim_mcp.clients.arm as arm_module
+from _mcp_harness import (
+    ISSUER,
+    REQUEST_HEADERS,
+    REQUIRED_ROLE,
+    TENANT_ID,
+    authorization_header,
+)
+from _mcp_harness import (
+    call_tool as _shared_call_tool,
+)
+from _mcp_harness import (
+    jwks_cache as _jwks_cache,
+)
+from _mcp_harness import (
+    rpc as _rpc,
+)
+from _mcp_harness import (
+    settings as _base_settings,
+)
 from apim_mcp.auth.context import CallContext
 from apim_mcp.auth.middleware import (
     MCP_DELEGATED_SCOPE,
@@ -36,70 +52,15 @@ from apim_mcp.server import (
 )
 from apim_mcp.settings import ApimServiceConfig, Settings
 
-TENANT_ID = "11111111-1111-1111-1111-111111111111"
-AUDIENCE = "http://testserver/mcp"
-REQUIRED_ROLE = "Apim.Read"
-ISSUER = f"https://login.microsoftonline.com/{TENANT_ID}/v2.0"
-KID = "server-test-kid"
-
-_private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-_public_jwk = jwt.algorithms.RSAAlgorithm.to_jwk(_private_key.public_key(), as_dict=True)
-_public_jwk["kid"] = KID
-_public_jwk["use"] = "sig"
-JWKS_BODY: dict[str, Any] = {"keys": [_public_jwk]}
-
 RESOURCE_ID = (
     "/subscriptions/00000000-0000-0000-0000-000000000000"
     "/resourceGroups/rg-fixture"
     "/providers/Microsoft.ApiManagement/service/apim-fixture"
 )
 
-REQUEST_HEADERS = {
-    "Accept": "application/json, text/event-stream",
-    "Content-Type": "application/json",
-}
-
 
 def _settings() -> Settings:
-    return Settings(
-        azure_tenant_id=TENANT_ID,
-        azure_client_id="22222222-2222-2222-2222-222222222222",
-        mcp_server_audience=AUDIENCE,
-        mcp_server_app_id=AUDIENCE,
-        mcp_required_role=REQUIRED_ROLE,
-        apim_services=[],
-        applicationinsights_connection_string=(
-            "InstrumentationKey=00000000-0000-0000-0000-000000000000"
-        ),
-    )
-
-
-def _token(*, roles: list[str] | None = None) -> str:
-    now = int(time.time())
-    claims = {
-        "iss": ISSUER,
-        "aud": AUDIENCE,
-        "exp": now + 3600,
-        "nbf": now - 10,
-        "iat": now,
-        "oid": "caller-oid",
-        "preferred_username": "caller@example.com",
-        "roles": roles if roles is not None else [REQUIRED_ROLE],
-    }
-    return jwt.encode(claims, _private_key, algorithm="RS256", headers={"kid": KID})
-
-
-def _jwks_cache() -> Any:
-    from apim_mcp.auth.middleware import JWKSCache
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json=JWKS_BODY)
-
-    return JWKSCache(TENANT_ID, transport=httpx.MockTransport(handler))
-
-
-def _rpc(method: str, params: dict[str, Any], *, req_id: int = 1) -> dict[str, Any]:
-    return {"jsonrpc": "2.0", "id": req_id, "method": method, "params": params}
+    return _base_settings()
 
 
 def _init_params() -> dict[str, Any]:
@@ -182,7 +143,7 @@ def test_authorization_server_metadata_mirror_matches_entra_verbatim() -> None:
 
 
 def test_authorization_server_metadata_fetch_failure_returns_503() -> None:
-    """A transient fetch failure is a result, not a crash (docs/PRINCIPLES.md §8)."""
+    """A transient failure is a result, not a crash (docs/development/PRINCIPLES.md §8)."""
 
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(500)
@@ -209,7 +170,7 @@ def test_server_responds_to_mcp_initialize() -> None:
         response = client.post(
             "/mcp",
             json=_rpc("initialize", _init_params()),
-            headers={**REQUEST_HEADERS, "Authorization": f"Bearer {_token()}"},
+            headers={**REQUEST_HEADERS, "Authorization": authorization_header()},
         )
     assert response.status_code == 200
     body = response.json()
@@ -238,32 +199,27 @@ def _build_app_with_tools() -> tuple[Any, list[ToolRegistration], Settings]:
 
 
 def _call_tool(client: TestClient, name: str, arguments: dict[str, Any]) -> httpx.Response:
-    response: httpx.Response = client.post(
-        "/mcp",
-        json=_rpc("tools/call", {"name": name, "arguments": arguments}),
-        headers={**REQUEST_HEADERS, "Authorization": f"Bearer {_token()}"},
-    )
-    return response
+    return _shared_call_tool(client, name, arguments)
 
 
 def test_every_tool_emits_audit_event(caplog: pytest.LogCaptureFixture) -> None:
     app, registry, _ = _build_app_with_tools()
-    assert {r.name for r in registry} == {"dummy_ok", "dummy_error", "dummy_boom"}
+    assert set(registry) == {"dummy_ok", "dummy_error", "dummy_boom"}
 
     with caplog.at_level(logging.INFO, logger=AUDIT_LOGGER_NAME), TestClient(app) as client:
         client.post(
             "/mcp",
             json=_rpc("initialize", _init_params()),
-            headers={**REQUEST_HEADERS, "Authorization": f"Bearer {_token()}"},
+            headers={**REQUEST_HEADERS, "Authorization": authorization_header()},
         )
         for reg in registry:
-            arguments = {"service": "prod"} if reg.name == "dummy_ok" else {}
-            _call_tool(client, reg.name, arguments)
+            arguments = {"service": "prod"} if reg == "dummy_ok" else {}
+            _call_tool(client, reg, arguments)
 
     audit_records = [r for r in caplog.records if r.name == AUDIT_LOGGER_NAME]
     assert len(audit_records) == len(registry)
     logged_tools = {json.loads(r.message)["tool"] for r in audit_records}
-    assert logged_tools == {reg.name for reg in registry}
+    assert logged_tools == set(registry)
 
 
 def test_audit_event_contains_all_fields_and_no_response_body(
@@ -424,6 +380,11 @@ def test_permission_canary_runs_at_startup_and_logs_findings(
     directly, so this also proves `create_app` wires it up."""
     monkeypatch.setattr(arm_module, "credential_for", lambda ctx, scope: _FakeCredential())
 
+    async def no_metric_probe(settings: Settings) -> None:
+        return None
+
+    monkeypatch.setattr("apim_mcp.server._run_startup_metric_probe", no_metric_probe)
+
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
             200,
@@ -438,17 +399,7 @@ def test_permission_canary_runs_at_startup_and_logs_findings(
 
     monkeypatch.setattr("apim_mcp.common.telemetry.ArmClient", patched)
 
-    settings = Settings(
-        azure_tenant_id=TENANT_ID,
-        azure_client_id="22222222-2222-2222-2222-222222222222",
-        mcp_server_audience=AUDIENCE,
-        mcp_server_app_id=AUDIENCE,
-        mcp_required_role=REQUIRED_ROLE,
-        apim_services=[_service("prod")],
-        applicationinsights_connection_string=(
-            "InstrumentationKey=00000000-0000-0000-0000-000000000000"
-        ),
-    )
+    settings = _base_settings(services=[_service("prod")])
     app = create_app(settings=settings, allowed_hosts=["testserver"])
 
     with (

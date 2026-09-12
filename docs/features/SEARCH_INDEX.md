@@ -36,7 +36,7 @@ Each operation becomes one `OperationIndexEntry` — a document combining:
 | Operation/API description | ×1 |
 | Parameter names | ×1 |
 | Schema property names | ×1 |
-| API tags | ×1 |
+| API tags | ×2 |
 
 Names/paths are tokenized first (camelCase/PascalCase/snake_case/kebab-case
 and URL segments split into words — see `src/apim_mcp/index/tokenize.py`),
@@ -98,7 +98,7 @@ with every other tool's "no state beyond in-flight ARM calls" model.
 
 The index is intentionally a single shared structure across every caller —
 not one copy per user — because every caller currently has identical read
-access via the server's managed identity (see `docs/PRINCIPLES.md` §3's
+access via the server's managed identity (see `docs/development/PRINCIPLES.md` §3's
 one documented exception to "every cache key includes `oid`"). If the
 server ever moves to on-behalf-of auth, where callers can have different
 access, this needs a post-filter step before results are returned, not a

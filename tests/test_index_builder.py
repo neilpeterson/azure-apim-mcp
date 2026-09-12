@@ -1,4 +1,7 @@
-"""Tests for `apim_mcp.index.builder` (T-15). See docs/SPEC.md §7.1-7.3, §7.5."""
+"""Tests for `apim_mcp.index.builder` (T-15).
+
+See docs/development/SPEC.md §7.1-7.3, §7.5.
+"""
 
 from __future__ import annotations
 
@@ -389,7 +392,7 @@ def test_search_text_weights_fields_per_spec() -> None:
 
 
 def test_api_index_entry_serializes_expected_fields() -> None:
-    """A basic sanity check that the model matches docs/SPEC.md §7.1's shape."""
+    """A basic sanity check that the model matches docs/development/SPEC.md §7.1."""
     from apim_mcp.index.builder import OperationIndexEntry
 
     entry = OperationIndexEntry(

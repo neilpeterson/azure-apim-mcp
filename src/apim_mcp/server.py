@@ -1,7 +1,8 @@
 """FastMCP app bootstrap: middleware wiring, health endpoints, and the
 audited-tool registration decorator every Group A-D tool (T-10+) uses.
 
-See `docs/SPEC.md` §9, §10 and `docs/PRINCIPLES.md` §8 ("errors are
+See `docs/development/SPEC.md` §9, §10 and
+`docs/development/PRINCIPLES.md` §8 ("errors are
 results, not exceptions").
 """
 
@@ -49,8 +50,8 @@ logger = logging.getLogger(__name__)
 
 SERVER_NAME = "apim-mcp"
 
-# Every tool is read-only by construction (docs/PRINCIPLES.md §4) — these
-# annotations are identical for all of them, per docs/SPEC.md §6.0.
+# Every tool is read-only by construction (docs/development/PRINCIPLES.md §4) — these
+# annotations are identical for all of them, per docs/development/SPEC.md §6.0.
 _TOOL_ANNOTATIONS = ToolAnnotations(
     readOnlyHint=True,
     destructiveHint=False,
@@ -59,18 +60,7 @@ _TOOL_ANNOTATIONS = ToolAnnotations(
 )
 
 
-class ToolRegistration:
-    """One entry in the audited-tool registry.
-
-    `test_every_tool_emits_audit_event` iterates this list rather than
-    reaching into FastMCP's internals, so the registry is the contract
-    between `audited_tool` and its tests.
-    """
-
-    __slots__ = ("name",)
-
-    def __init__(self, name: str) -> None:
-        self.name = name
+type ToolRegistration = str
 
 
 def current_call_context() -> CallContext:
@@ -88,7 +78,7 @@ def current_call_context() -> CallContext:
 
 def _result_payload(result: dict[str, Any] | ToolError) -> dict[str, Any]:
     """Never hand a `ToolError` object straight to the transport — every
-    tool result is a plain, JSON-serialisable dict (`docs/SPEC.md` §6.0)."""
+    tool result is a plain, JSON-serialisable dict (`docs/development/SPEC.md` §6.0)."""
     if isinstance(result, ToolError):
         return error_envelope(result)
     return result
@@ -116,10 +106,10 @@ def audited_tool(
        decorator strips it from the signature FastMCP inspects.
     2. Never raises out of the handler: a stray exception becomes an
        `upstream_error` result and is logged at ERROR
-       (`docs/PRINCIPLES.md` §8).
+       (`docs/development/PRINCIPLES.md` §8).
     3. Emits exactly one §9 audit event, regardless of outcome.
     4. Renders the structured result per the caller's `response_format`
-       (`docs/SPEC.md` §6.0) — `fn` itself only ever builds structured
+       (`docs/development/SPEC.md` §6.0) — `fn` itself only ever builds structured
        data; every Group A-D tool gets markdown/JSON rendering for free
        rather than reimplementing it.
     """
@@ -177,7 +167,7 @@ def audited_tool(
 
         wrapper.__signature__ = public_sig  # type: ignore[attr-defined]
         mcp.tool(name=name, annotations=_TOOL_ANNOTATIONS)(wrapper)
-        registry.append(ToolRegistration(name))
+        registry.append(name)
         return wrapper
 
     return decorator
@@ -211,7 +201,7 @@ def _make_readyz(settings: Settings) -> Callable[[Request], Awaitable[JSONRespon
 def _make_oauth_protected_resource(
     settings: Settings,
 ) -> Callable[[Request], Awaitable[JSONResponse]]:
-    """RFC 9728 protected-resource metadata (`docs/SPEC.md` §10.2) - lets VS
+    """RFC 9728 protected-resource metadata (`docs/development/SPEC.md` §10.2) - lets VS
     Code (and any other MCP client implementing the authorization spec)
     discover the Entra tenant to authenticate against without a
     hand-configured header. Unauthenticated, like `/healthz`/`/readyz`
@@ -240,7 +230,7 @@ def _make_authorization_server_metadata(
     """Mirrors Entra's real, unmodified OIDC discovery document at our own
     well-known paths - a workaround for a VS Code MCP client bug, not a
     protocol requirement. See `AuthorizationServerMetadataCache` and
-    `docs/SPEC.md` §10.2.1 for the full rationale. Never fabricates a
+    `docs/development/SPEC.md` §10.2.1 for the full rationale. Never fabricates a
     document and never adds a `registration_endpoint` - only ever returns
     what Entra itself publishes."""
 
@@ -280,7 +270,7 @@ def create_mcp(
         transport_security=TransportSecuritySettings(
             # DNS-rebinding protection needs an explicit, known Host header
             # allowlist to be useful; the real production hostname isn't
-            # part of docs/SPEC.md §5.3's configuration surface. Every
+            # part of docs/development/SPEC.md §5.3's configuration surface. Every
             # non-health route already requires a valid bearer token via
             # `TokenValidationMiddleware`, so when no `allowed_hosts` is
             # given (production default) this layer is disabled rather
@@ -295,7 +285,7 @@ def create_mcp(
     oauth_protected_resource = _make_oauth_protected_resource(settings)
     # RFC 9728 §3.1: serve both the root and the path-suffixed variant
     # identically - VS Code (and other spec-compliant clients) may probe
-    # either. See docs/SPEC.md §10.2.
+    # either. See docs/development/SPEC.md §10.2.
     mcp.custom_route(OAUTH_PROTECTED_RESOURCE_PATH, methods=["GET"])(oauth_protected_resource)
     mcp.custom_route(OAUTH_PROTECTED_RESOURCE_MCP_PATH, methods=["GET"])(oauth_protected_resource)
     auth_metadata_cache = AuthorizationServerMetadataCache(
@@ -335,6 +325,7 @@ def create_app(
     from apim_mcp.tools.config import register_config_tools
     from apim_mcp.tools.discovery import register_discovery_tools
     from apim_mcp.tools.search import register_search_tools
+    from apim_mcp.tools.telemetry import register_telemetry_tools
 
     resolved_settings = settings or get_settings()
     mcp = create_mcp(resolved_settings, allowed_hosts=allowed_hosts)
@@ -342,9 +333,10 @@ def create_app(
     register_discovery_tools(mcp, registry, resolved_settings)
     register_config_tools(mcp, registry, resolved_settings)
     # One `IndexManager` per running server, not module-level - see
-    # docs/PRINCIPLES.md §7 and `apim_mcp.index.search.IndexManager`.
+    # docs/development/PRINCIPLES.md §7 and `apim_mcp.index.search.IndexManager`.
     index_manager = IndexManager(resolved_settings)
     register_search_tools(mcp, registry, resolved_settings, index_manager)
+    register_telemetry_tools(mcp, registry, resolved_settings)
     app = wrap_with_middleware(mcp, resolved_settings)
     return _StartupCanaryApp(app, resolved_settings, index_manager=index_manager)
 
@@ -365,6 +357,20 @@ async def _run_startup_canary(settings: Settings) -> None:
         await run_permission_canary(ctx, settings.apim_services)
     except Exception:
         logger.exception("permission canary failed to run at startup")
+
+
+async def _run_startup_metric_probe(settings: Settings) -> None:
+    """Log the APIM metrics available on each configured service."""
+    if not settings.apim_services:
+        logger.info("metric availability probe: no APIM_SERVICES configured, skipping")
+        return
+    from apim_mcp.clients.metrics import probe_metric_availability
+
+    ctx = CallContext(oid="startup", upn="startup", roles=(), bearer_token="")
+    try:
+        await probe_metric_availability(ctx, settings.apim_services)
+    except Exception:
+        logger.exception("metric availability probe failed at startup")
 
 
 class _StartupCanaryApp:
@@ -405,6 +411,7 @@ class _StartupCanaryApp:
             if message["type"] == "lifespan.startup" and not canary_ran:
                 canary_ran = True
                 await _run_startup_canary(self._settings)
+                asyncio.create_task(_run_startup_metric_probe(self._settings))  # noqa: RUF006
                 if self._index_manager is not None and self._settings.apim_services:
                     ctx = CallContext(oid="startup", upn="startup", roles=(), bearer_token="")
                     asyncio.create_task(self._index_manager.build_all(ctx))  # noqa: RUF006
@@ -420,15 +427,19 @@ def main() -> None:
     convenience so env vars don't need to be exported in every shell. Real
     exported env vars still win (`override=False`); `.env` is gitignored and
     never read by `Settings`/tests directly, only here. See
-    `docs/LOCAL_TESTING.md`.
+    `docs/development/LOCAL_TESTING.md`.
     """
     from dotenv import load_dotenv
 
     load_dotenv()
 
     import uvicorn
+    from azure.monitor.opentelemetry import configure_azure_monitor
 
     settings = get_settings()
+    configure_azure_monitor(
+        connection_string=settings.applicationinsights_connection_string,
+    )
     app = create_app(settings=settings)
     uvicorn.run(app, host="0.0.0.0", port=8000)  # noqa: S104
 

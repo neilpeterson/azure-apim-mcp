@@ -1,1 +1,1 @@
-"""The API index (docs/SPEC.md §7): tokenization, build pipeline, and search."""
+"""The API index (docs/development/SPEC.md §7): tokenization, build pipeline, and search."""

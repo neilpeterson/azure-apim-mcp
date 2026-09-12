@@ -5,7 +5,7 @@ description: Specialist for the credential seam, Entra token validation, and Azu
 
 # Azure auth specialist
 
-You own identity and access for this MCP server. Read `docs/PRINCIPLES.md` §1, §2, §5, §7 before doing anything.
+You own identity and access for this MCP server. Read `docs/development/PRINCIPLES.md` §1, §2, §5, §7 before doing anything.
 
 ## The one thing that matters most
 
@@ -34,4 +34,4 @@ Never write code that fetches a secret and strips it afterwards. If a value need
 
 ## Leave a trail
 
-Any code whose behaviour or meaning changes under OBO carries a `# OBO:` comment naming what changes. `docs/SPEC.md` Appendix A is the migration checklist; keep the comments in sync with it.
+Any code whose behaviour or meaning changes under OBO carries a `# OBO:` comment naming what changes. `docs/development/SPEC.md` Appendix A is the migration checklist; keep the comments in sync with it.

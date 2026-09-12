@@ -1,4 +1,4 @@
-"""Tests for the list envelope, renderers, and truncation (T-04). See docs/SPEC.md §6.0."""
+"""Tests for list formatting (T-04). See docs/development/SPEC.md §6.0."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ def _sample_items() -> list[dict[str, Any]]:
 
 
 def test_build_list_envelope_shape_with_more_pages() -> None:
-    envelope = build_list_envelope(_sample_items(), total=50, offset=0, limit=25)
+    envelope = build_list_envelope(_sample_items(), total=50, offset=0)
     assert envelope["total"] == 50
     assert envelope["count"] == 2
     assert envelope["offset"] == 0
@@ -32,19 +32,19 @@ def test_build_list_envelope_shape_with_more_pages() -> None:
 
 
 def test_build_list_envelope_no_more_pages() -> None:
-    envelope = build_list_envelope([{"id": "a"}], total=1, offset=0, limit=25)
+    envelope = build_list_envelope([{"id": "a"}], total=1, offset=0)
     assert envelope["has_more"] is False
     assert envelope["next_offset"] is None
 
 
 def test_json_render_round_trips_to_same_data() -> None:
-    envelope = build_list_envelope(_sample_items(), total=2, offset=0, limit=25)
+    envelope = build_list_envelope(_sample_items(), total=2, offset=0)
     assert json.loads(render_json(envelope)) == envelope
 
 
 def test_markdown_and_json_are_equivalent() -> None:
     """Both renderers must carry the same information for the same input."""
-    envelope = build_list_envelope(_sample_items(), total=50, offset=0, limit=25)
+    envelope = build_list_envelope(_sample_items(), total=50, offset=0)
     json_data: Mapping[str, Any] = json.loads(render_json(envelope))
     markdown = render_markdown(envelope)
 
@@ -60,7 +60,7 @@ def test_markdown_and_json_are_equivalent() -> None:
 
 
 def test_truncation_noop_when_under_budget() -> None:
-    envelope = build_list_envelope([{"id": "a"}], total=1, offset=0, limit=25)
+    envelope = build_list_envelope([{"id": "a"}], total=1, offset=0)
     result = apply_truncation(envelope, max_bytes=48_000, narrow_param="limit")
     assert result["truncated"] is False
     assert result["items"] == [{"id": "a"}]
@@ -68,7 +68,7 @@ def test_truncation_noop_when_under_budget() -> None:
 
 def test_truncation_sets_hint() -> None:
     items = [{"id": f"api-{i}", "description": "x" * 200} for i in range(500)]
-    envelope = build_list_envelope(items, total=500, offset=0, limit=500)
+    envelope = build_list_envelope(items, total=500, offset=0)
 
     truncated = apply_truncation(envelope, max_bytes=2_000, narrow_param="limit")
 
@@ -81,7 +81,7 @@ def test_truncation_sets_hint() -> None:
 
 def test_truncation_updates_pagination_fields() -> None:
     items = [{"id": f"api-{i}", "description": "x" * 200} for i in range(500)]
-    envelope = build_list_envelope(items, total=500, offset=0, limit=500)
+    envelope = build_list_envelope(items, total=500, offset=0)
 
     truncated = apply_truncation(envelope, max_bytes=2_000, narrow_param="limit")
 

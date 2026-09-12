@@ -1,6 +1,6 @@
 // Assigns a supplied built-in role to the server's managed identity at the
 // narrowest possible scope: the individual APIM resource, never the resource
-// group and never the subscription (docs/SPEC.md §4.2).
+// group and never the subscription (docs/development/SPEC.md §4.2).
 //
 // Deployed as a module scoped to the resource group that actually contains
 // the target APIM instance, which may differ from the resource group the

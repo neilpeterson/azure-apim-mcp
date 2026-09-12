@@ -1,10 +1,11 @@
 """ArmClient: the only way this server talks to Azure Resource Manager.
 
-See docs/SPEC.md §5.2. Read-only by construction - `docs/PRINCIPLES.md` §4
+See docs/development/SPEC.md §5.2. Read-only by construction -
+`docs/development/PRINCIPLES.md` §4
 is enforced by the simple fact that this class exposes no mutating method,
 not by a runtime check. `get()` and `list_all()` never raise on an
 upstream failure; they return a `ToolError` so callers can render it as a
-result rather than crash the tool handler (`docs/PRINCIPLES.md` §8).
+result rather than crash the tool handler (`docs/development/PRINCIPLES.md` §8).
 """
 
 from __future__ import annotations
@@ -87,7 +88,7 @@ def _map_error(response: httpx.Response, *, resource_id: str) -> ToolError:
     if status == 429:
         retry_after = _parse_retry_after(response.headers.get("Retry-After")) or 0
         return throttled(int(retry_after))
-    return upstream_error(log_detail=f"{status} from ARM for {resource_id}: {response.text[:500]}")
+    return upstream_error(log_detail=f"ARM returned HTTP {status} for {resource_id}")
 
 
 def _build_auth_header(access_token: str) -> str:
@@ -96,7 +97,8 @@ def _build_auth_header(access_token: str) -> str:
 
 
 class ArmClient:
-    """Read-only ARM wrapper. Construct one per request - see `docs/PRINCIPLES.md` §7."""
+    """Read-only ARM wrapper. Construct one per request - see
+    `docs/development/PRINCIPLES.md` §7."""
 
     def __init__(
         self,
@@ -127,14 +129,12 @@ class ArmClient:
         except ValueError:
             # A 200 with a body that isn't valid JSON is still an ARM
             # contract violation from this client's point of view - never
-            # let it raise out of a tool handler (docs/PRINCIPLES.md §8).
+            # let it raise out of a tool handler (docs/development/PRINCIPLES.md §8).
             # Callers that expect a non-JSON body for a given resource
             # (e.g. `format=rawxml` policy exports) must use `get_text`
             # instead of `get`.
             return upstream_error(
-                log_detail=(
-                    f"non-JSON 200 response from ARM for {resource_id}: {response.text[:500]!r}"
-                )
+                log_detail=f"ARM returned a non-JSON 200 response for {resource_id}"
             )
         return parsed
 

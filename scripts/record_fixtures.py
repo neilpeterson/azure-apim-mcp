@@ -8,7 +8,6 @@ optional. Real subscription IDs, tenant IDs, hostnames and any credential
 material are scrubbed before a single byte hits disk.
 
     export APIM_RECORD_RESOURCE_ID="/subscriptions/.../service/apim-nonprod"
-    export APIM_RECORD_WORKSPACE_ID="/subscriptions/.../workspaces/law-nonprod"
     make fixtures
 """
 

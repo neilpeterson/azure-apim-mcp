@@ -1,5 +1,7 @@
 # Principles
 
+These are the non-negotiable development rules for this repository.
+
 Non-negotiable rules for this repository. Every one of these exists because violating it is cheap now and expensive later. If a change appears to require breaking one of these, that is a signal to stop and ask, not to break it.
 
 Each principle states the rule, why it exists, what violating it looks like, and how it is enforced.
@@ -62,7 +64,7 @@ Each principle states the rule, why it exists, what violating it looks like, and
 
 **Rule.** The code never calls `namedValues/listValue`, `subscriptions/listSecrets`, `gateways/listKeys`, `tenant/listSecrets`, or `users/token`. Never returns `encodedCertificate`, certificate passwords, or backend `credentials`.
 
-**Why.** The primary control is Azure RBAC. The managed identity receives the built-in **API Management Service Reader Role** at each individual APIM resource. It grants `Microsoft.ApiManagement/service/*/read`, explicitly excludes `Microsoft.ApiManagement/service/users/keys/read`, and does not grant the `*/action` operations used by `namedValues/listValue`, `subscriptions/listSecrets`, `gateways/listKeys`, `tenant/listSecrets`, or `users/token`. Code-level redaction is the second layer, for secrets embedded in content the identity is legitimately allowed to read (inline credentials in policy XML, tokens in log query strings). Any future metrics role must be selected separately when metrics are implemented and must preserve these invariants.
+**Why.** The primary control is Azure RBAC. The managed identity receives the built-in **API Management Service Reader Role** at each individual APIM resource. It grants `Microsoft.ApiManagement/service/*/read`, explicitly excludes `Microsoft.ApiManagement/service/users/keys/read`, and does not grant the `*/action` operations used by `namedValues/listValue`, `subscriptions/listSecrets`, `gateways/listKeys`, `tenant/listSecrets`, or `users/token`. Code-level redaction is the second layer, for secrets embedded in content the identity is legitimately allowed to read (inline credentials in policy XML, tokens in log query strings). Metrics preserve this boundary by routing APIM `AllMetrics` to Log Analytics and using the existing workspace-scoped Log Analytics Reader role; no broader APIM role is added.
 
 The distinction matters: do not write code that fetches a secret and then strips it. A regex you have to keep correct will eventually be wrong. A 403 from Azure never is.
 
@@ -86,13 +88,13 @@ The distinction matters: do not write code that fetches a secret and then strips
 
 ## 7. Azure SDK clients are constructed per request
 
-**Rule.** No module-level or startup singleton for `ApiManagementClient`, `LogsQueryClient`, `MetricsQueryClient`, or `httpx.AsyncClient` carrying auth.
+**Rule.** No module-level or startup singleton for `ArmClient`, `LogsQueryClient`, or `httpx.AsyncClient` carrying auth.
 
 **Why.** A startup singleton bakes in the assumption that the credential never varies across callers. Under OBO it does vary, per request. SDK clients are cheap to construct; the token cache lives inside the credential object, so you lose almost nothing.
 
 **Exception.** A bare `httpx.AsyncClient` with no auth (used to fetch the SAS-signed spec export blob) may be a shared singleton, because it carries no identity.
 
-**Violation looks like.** `client = ApiManagementClient(...)` at module scope, or in a `startup` event handler.
+**Violation looks like.** `client = ArmClient(...)` at module scope, or in a `startup` event handler.
 
 **Enforced by.** `tests/test_principles.py::test_no_module_level_azure_clients`.
 
@@ -104,7 +106,7 @@ The distinction matters: do not write code that fetches a secret and then strips
 
 **Why.** The model has to be able to read and act on the failure. A protocol-level error surfaces to the user as an opaque tool failure; a structured result lets the model say "no API named `orders` on `prod` — here are the ones that exist."
 
-**The `access_denied` wording is version-specific and will need changing.** Under v1 a 403 means the *server's* identity is misconfigured, and the message must say so — otherwise the model tells the user they lack permission when the user has nothing to do with it. Under OBO, a 403 becomes a routine user-permission result and the message must be rewritten. This is on the migration checklist in `docs/SPEC.md` Appendix A; the message string carries a `# OBO:` comment.
+**The `access_denied` wording is version-specific and will need changing.** Under v1 a 403 means the *server's* identity is misconfigured, and the message must say so — otherwise the model tells the user they lack permission when the user has nothing to do with it. Under OBO, a 403 becomes a routine user-permission result and the message must be rewritten. This is on the migration checklist in `docs/development/SPEC.md` Appendix A; the message string carries a `# OBO:` comment.
 
 **Violation looks like.** `raise ValueError("api not found")` inside a tool.
 
@@ -129,3 +131,30 @@ The distinction matters: do not write code that fetches a secret and then strips
 **Why.** Under the v1 access model the Azure activity log records the managed identity, not the human who asked. The application log is the *only* record of who asked what. It is a compliance artifact, not debug output. Arguments are logged because they are the record of the question; responses are not, because they may contain configuration detail that does not belong in a log sink with different access controls.
 
 **Enforced by.** `tests/test_telemetry.py::test_every_tool_emits_audit_event` iterates the registered tool list.
+
+---
+
+## 11. Existing customer infrastructure is configuration-immutable
+
+**Rule.** Deployment templates may reference existing APIM services and Log
+Analytics workspaces only to grant the MCP identity narrowly scoped read-only
+role assignments. They must not create or update APIM diagnostic settings,
+APIs, policies, log routing, workspace configuration, or any other property on
+those existing resources. Infrastructure created and owned by this deployment,
+such as the Container App environment and its diagnostics, remains managed by
+the template.
+
+**Why.** The MCP server consumes existing platform configuration; it does not
+own it. Changing customer-managed APIM or observability settings creates an
+unexpected deployment blast radius and can overwrite independently managed
+retention, routing, or compliance controls. Access grants are the sole intended
+integration point.
+
+**Violation looks like.** A Bicep module that deploys
+`Microsoft.Insights/diagnosticSettings` with an existing APIM service as its
+scope, or any non-`existing` `Microsoft.ApiManagement/*` resource declaration.
+
+**Enforced by.**
+`tests/test_principles.py::test_existing_apim_infrastructure_is_not_modified`
+scans the Bicep templates for APIM mutations and APIM-scoped diagnostic
+settings.

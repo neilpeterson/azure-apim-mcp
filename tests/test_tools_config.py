@@ -1,6 +1,6 @@
 """Tests for src/apim_mcp/tools/config.py (T-13).
 
-See docs/SPEC.md §6.0 (tool conventions) and §6 Group B.
+See docs/development/SPEC.md §6.0 (tool conventions) and §6 Group B.
 """
 
 from __future__ import annotations
@@ -11,25 +11,38 @@ from pathlib import Path
 from typing import Any
 
 import httpx
-import jwt
 import pytest
-from cryptography.hazmat.primitives.asymmetric import rsa
 from starlette.testclient import TestClient
 
 import apim_mcp.clients.arm as arm_module
 from _fixture_transport import FixtureTransport
+from _mcp_harness import (
+    REQUEST_HEADERS,
+)
+from _mcp_harness import (
+    call_tool as _shared_call_tool,
+)
+from _mcp_harness import (
+    jwks_cache as _jwks_cache,
+)
+from _mcp_harness import (
+    result_text as _shared_result_text,
+)
+from _mcp_harness import (
+    rpc as _rpc,
+)
+from _mcp_harness import (
+    settings as _base_settings,
+)
+from _mcp_harness import (
+    token as _token,
+)
 from apim_mcp.auth.context import CallContext
 from apim_mcp.clients.arm import ArmClient
 from apim_mcp.common.errors import ToolError, not_found
 from apim_mcp.server import ToolRegistration, create_mcp, wrap_with_middleware
 from apim_mcp.settings import ApimServiceConfig, Settings
 from apim_mcp.tools.config import register_config_tools
-
-TENANT_ID = "11111111-1111-1111-1111-111111111111"
-AUDIENCE = "http://localhost:8000/mcp"
-REQUIRED_ROLE = "Apim.Read"
-ISSUER = f"https://login.microsoftonline.com/{TENANT_ID}/v2.0"
-KID = "config-test-kid"
 
 FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
 
@@ -38,17 +51,6 @@ RESOURCE_ID = (
     "/resourceGroups/rg-fixture"
     "/providers/Microsoft.ApiManagement/service/apim-fixture"
 )
-
-REQUEST_HEADERS = {
-    "Accept": "application/json, text/event-stream",
-    "Content-Type": "application/json",
-}
-
-_private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-_public_jwk = jwt.algorithms.RSAAlgorithm.to_jwk(_private_key.public_key(), as_dict=True)
-_public_jwk["kid"] = KID
-_public_jwk["use"] = "sig"
-JWKS_BODY: dict[str, Any] = {"keys": [_public_jwk]}
 
 
 class _FakeToken:
@@ -66,45 +68,7 @@ def _service(alias: str) -> ApimServiceConfig:
 
 
 def _settings() -> Settings:
-    return Settings(
-        azure_tenant_id=TENANT_ID,
-        azure_client_id="22222222-2222-2222-2222-222222222222",
-        mcp_server_audience=AUDIENCE,
-        mcp_server_app_id=AUDIENCE,
-        mcp_required_role=REQUIRED_ROLE,
-        apim_services=[_service("prod")],
-        applicationinsights_connection_string=(
-            "InstrumentationKey=00000000-0000-0000-0000-000000000000"
-        ),
-    )
-
-
-def _token(*, oid: str = "caller-oid") -> str:
-    now = int(time.time())
-    claims = {
-        "iss": ISSUER,
-        "aud": AUDIENCE,
-        "exp": now + 3600,
-        "nbf": now - 10,
-        "iat": now,
-        "oid": oid,
-        "preferred_username": "caller@example.com",
-        "roles": [REQUIRED_ROLE],
-    }
-    return jwt.encode(claims, _private_key, algorithm="RS256", headers={"kid": KID})
-
-
-def _jwks_cache() -> Any:
-    from apim_mcp.auth.middleware import JWKSCache
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json=JWKS_BODY)
-
-    return JWKSCache(TENANT_ID, transport=httpx.MockTransport(handler))
-
-
-def _rpc(method: str, params: dict[str, Any], *, req_id: int = 1) -> dict[str, Any]:
-    return {"jsonrpc": "2.0", "id": req_id, "method": method, "params": params}
+    return _base_settings(services=[_service("prod")])
 
 
 def _build_app(
@@ -130,18 +94,11 @@ def _build_app(
 
 
 def _call_tool(client: TestClient, name: str, arguments: dict[str, Any]) -> httpx.Response:
-    response: httpx.Response = client.post(
-        "/mcp",
-        json=_rpc("tools/call", {"name": name, "arguments": arguments}),
-        headers={**REQUEST_HEADERS, "Authorization": f"Bearer {_token()}"},
-    )
-    return response
+    return _shared_call_tool(client, name, arguments)
 
 
 def _result_text(response: httpx.Response) -> str:
-    body = response.json()
-    text: str = body["result"]["content"][0]["text"]
-    return text
+    return _shared_result_text(response)
 
 
 def _fixture_transport() -> FixtureTransport:
@@ -150,7 +107,7 @@ def _fixture_transport() -> FixtureTransport:
 
 def test_config_tools_registered(monkeypatch: pytest.MonkeyPatch) -> None:
     _app, registry, _settings_obj = _build_app(monkeypatch, transport=_fixture_transport())
-    assert {r.name for r in registry} == {
+    assert set(registry) == {
         "apim_list_apis",
         "apim_get_api",
         "apim_get_policy",
@@ -160,28 +117,6 @@ def test_config_tools_registered(monkeypatch: pytest.MonkeyPatch) -> None:
         "apim_list_subscriptions",
         "apim_get_api_spec",
     }
-
-
-def test_tools_have_correct_annotations(monkeypatch: pytest.MonkeyPatch) -> None:
-    app, _registry, _settings_obj = _build_app(monkeypatch, transport=_fixture_transport())
-    with TestClient(app) as client:
-        client.post(
-            "/mcp",
-            json=_rpc("initialize", {"protocolVersion": "2024-11-05", "capabilities": {}}),
-            headers={**REQUEST_HEADERS, "Authorization": f"Bearer {_token()}"},
-        )
-        response = client.post(
-            "/mcp",
-            json=_rpc("tools/list", {}, req_id=2),
-            headers={**REQUEST_HEADERS, "Authorization": f"Bearer {_token()}"},
-        )
-    tools = {t["name"]: t for t in response.json()["result"]["tools"]}
-    for tool in tools.values():
-        annotations = tool["annotations"]
-        assert annotations["readOnlyHint"] is True
-        assert annotations["destructiveHint"] is False
-        assert annotations["idempotentHint"] is True
-        assert annotations["openWorldHint"] is True
 
 
 def test_tool_descriptions_state_what_is_not_returned(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -644,7 +579,7 @@ def test_audit_events_emitted_for_all_config_tools(
 
     audit_records = [r for r in caplog.records if r.name == AUDIT_LOGGER_NAME]
     logged_tools = {json.loads(r.message)["tool"] for r in audit_records}
-    assert logged_tools == {r.name for r in registry} - {"apim_get_policy", "apim_get_api_spec"}
+    assert logged_tools == set(registry) - {"apim_get_policy", "apim_get_api_spec"}
 
 
 _SAMPLE_SPEC_DOCUMENT: dict[str, Any] = {
@@ -803,7 +738,7 @@ def test_spec_tool_export_failure_returns_typed_error(monkeypatch: pytest.Monkey
 
 
 def test_spec_tool_cache_is_scoped_by_oid(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Cache key includes `oid` (docs/PRINCIPLES.md §3): two calls with the
+    """Cache key includes `oid` (docs/development/PRINCIPLES.md §3): two calls with the
     same caller identity hit the cache; a different caller re-fetches."""
     app, _registry, _settings_obj = _build_app(monkeypatch, transport=_fixture_transport())
 

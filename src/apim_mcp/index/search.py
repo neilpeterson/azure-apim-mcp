@@ -1,6 +1,6 @@
 """BM25 search over the API index, plus its build/refresh lifecycle (T-16).
 
-See docs/SPEC.md §7.4 (lexical search, no embeddings in v1) and §7.5
+See docs/development/SPEC.md §7.4 (lexical search, no embeddings in v1) and §7.5
 (refresh: eager at startup, TTL-based background rebuild, never block a
 request on a rebuild).
 
@@ -19,7 +19,7 @@ import asyncio
 import logging
 import time
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Literal
 
 from rank_bm25 import BM25Okapi
@@ -36,7 +36,7 @@ SearchScope = Literal["operations", "apis", "both"]
 
 # Below this BM25 score, a hit is not a meaningfully strong match - it is
 # still returned (never hide a possible answer), but flagged
-# `lowConfidence: true` per docs/SPEC.md §7.4's "rank honestly" guidance.
+# `lowConfidence: true` per docs/development/SPEC.md §7.4's "rank honestly" guidance.
 _LOW_CONFIDENCE_SCORE_FLOOR = 0.01
 
 # §6 Group C: "Rate-limit [apim_refresh_index] to one call per service per 60s."
@@ -119,11 +119,6 @@ class _ServiceIndex:
     spec_failures: int
 
 
-@dataclass
-class _ServiceLock:
-    lock: asyncio.Lock = field(default_factory=asyncio.Lock)
-
-
 def _rank(index: _ServiceIndex, query_tokens: list[str]) -> list[tuple[float, OperationIndexEntry]]:
     if index.bm25 is None or not index.entries:
         return []
@@ -134,7 +129,7 @@ def _rank(index: _ServiceIndex, query_tokens: list[str]) -> list[tuple[float, Op
 class IndexManager:
     """Owns the per-service index build/refresh lifecycle. One instance per
     running server (constructed in `create_app`), not a module-level
-    singleton - see docs/PRINCIPLES.md §7."""
+    singleton - see docs/development/PRINCIPLES.md §7."""
 
     def __init__(
         self,
@@ -147,8 +142,8 @@ class IndexManager:
         self._build_fn = build_fn
         self._clock = clock
         self._indexes: dict[str, _ServiceIndex] = {}
-        self._locks: dict[str, _ServiceLock] = {
-            svc.alias: _ServiceLock() for svc in settings.apim_services
+        self._locks: dict[str, asyncio.Lock] = {
+            svc.alias: asyncio.Lock() for svc in settings.apim_services
         }
         self._last_refresh_at: dict[str, float] = {}
 
@@ -159,8 +154,8 @@ class IndexManager:
 
     async def _build_one(self, ctx: CallContext, alias: str) -> None:
         # OBO: builds the one shared-across-callers index for this service
-        # (docs/PRINCIPLES.md §3's one exception) - never key this per-oid.
-        lock = self._locks.setdefault(alias, _ServiceLock()).lock
+        # (docs/development/PRINCIPLES.md §3's one exception) - never key this per-oid.
+        lock = self._locks.setdefault(alias, asyncio.Lock())
         if lock.locked():
             return  # a build (eager startup, TTL refresh, or forced) is already in flight
         async with lock:
@@ -193,10 +188,10 @@ class IndexManager:
     async def build_all(self, ctx: CallContext) -> None:
         """Eager build at startup - every configured service, in parallel.
         Never raises (`_build_one` swallows its own failures) and callers
-        must not await this on the request path; see docs/SPEC.md §7.5.
+        must not await this on the request path; see docs/development/SPEC.md §7.5.
 
         # OBO: the index is shared across all callers by design (see
-        # docs/PRINCIPLES.md §3's one exception) - under OBO this becomes a
+        # docs/development/PRINCIPLES.md §3's one exception) - under OBO this becomes a
         # leak unless search hits are post-filtered against the caller's
         # read access. Do not turn this into a per-caller cache instead."""
         await asyncio.gather(
@@ -226,7 +221,7 @@ class IndexManager:
         limit: int,
     ) -> dict[str, Any] | ToolError:
         # OBO: this reads a single index shared by every caller
-        # (docs/PRINCIPLES.md §3's one exception). Under OBO, hits must be
+        # (docs/development/PRINCIPLES.md §3's one exception). Under OBO, hits must be
         # post-filtered against `ctx`'s read access before returning - do
         # not key the index by `ctx.oid` instead, that defeats the point.
         aliases = self._service_aliases(service)

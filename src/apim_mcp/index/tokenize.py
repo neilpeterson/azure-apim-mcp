@@ -1,4 +1,4 @@
-"""Tokenization for the API index, per docs/SPEC.md §7.3.
+"""Tokenization for the API index, per docs/development/SPEC.md §7.3.
 
 This one function is most of what makes `apim_search_apis` work: the BM25
 corpus (§7.4) is built over these tokens, so a query for `inventory` has to

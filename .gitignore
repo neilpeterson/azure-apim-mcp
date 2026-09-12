@@ -8,6 +8,7 @@ __pycache__/
 .vscode/mcp.json
 .azure/
 dist/
+.DS_Store
 
 # Environment-specific Azure deployment parameters may contain tenant and
 # resource identifiers. Commit only the sanitized examples.

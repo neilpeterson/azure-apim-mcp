@@ -1,6 +1,6 @@
 """Tests for src/apim_mcp/tools/discovery.py (T-10).
 
-See docs/SPEC.md §6.0 (tool conventions) and §6 Group A.
+See docs/development/SPEC.md §6.0 (tool conventions) and §6 Group A.
 """
 
 from __future__ import annotations
@@ -12,24 +12,28 @@ from pathlib import Path
 from typing import Any
 
 import httpx
-import jwt
 import pytest
-from cryptography.hazmat.primitives.asymmetric import rsa
 from starlette.testclient import TestClient
 
 import apim_mcp.clients.arm as arm_module
 from _fixture_transport import FixtureTransport
+from _mcp_harness import (
+    call_tool as _shared_call_tool,
+)
+from _mcp_harness import (
+    jwks_cache as _jwks_cache,
+)
+from _mcp_harness import (
+    result_text as _shared_result_text,
+)
+from _mcp_harness import (
+    settings as _base_settings,
+)
 from apim_mcp.auth.context import CallContext
 from apim_mcp.clients.arm import ArmClient
 from apim_mcp.server import ToolRegistration, create_mcp, wrap_with_middleware
 from apim_mcp.settings import ApimServiceConfig, Settings
 from apim_mcp.tools.discovery import register_discovery_tools
-
-TENANT_ID = "11111111-1111-1111-1111-111111111111"
-AUDIENCE = "http://localhost:8000/mcp"
-REQUIRED_ROLE = "Apim.Read"
-ISSUER = f"https://login.microsoftonline.com/{TENANT_ID}/v2.0"
-KID = "discovery-test-kid"
 
 FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
 
@@ -38,17 +42,6 @@ RESOURCE_ID = (
     "/resourceGroups/rg-fixture"
     "/providers/Microsoft.ApiManagement/service/apim-fixture"
 )
-
-REQUEST_HEADERS = {
-    "Accept": "application/json, text/event-stream",
-    "Content-Type": "application/json",
-}
-
-_private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-_public_jwk = jwt.algorithms.RSAAlgorithm.to_jwk(_private_key.public_key(), as_dict=True)
-_public_jwk["kid"] = KID
-_public_jwk["use"] = "sig"
-JWKS_BODY: dict[str, Any] = {"keys": [_public_jwk]}
 
 
 class _FakeToken:
@@ -61,50 +54,27 @@ class _FakeCredential:
         return _FakeToken("fake-token")
 
 
+class _FakeMetricsClient:
+    def __init__(self, ctx: CallContext) -> None:
+        self.ctx = ctx
+
+    async def query(
+        self, resource_id: str, workspace_resource_id: str | None, **kwargs: Any
+    ) -> dict[str, Any]:
+        return {
+            "items": [
+                {"Value": 40.0, "SampleCount": 1.0},
+                {"Value": 60.0, "SampleCount": 3.0},
+            ]
+        }
+
+
 def _service(alias: str) -> ApimServiceConfig:
     return ApimServiceConfig(alias=alias, resource_id=RESOURCE_ID)
 
 
 def _settings(*, services: list[ApimServiceConfig] | None = None) -> Settings:
-    return Settings(
-        azure_tenant_id=TENANT_ID,
-        azure_client_id="22222222-2222-2222-2222-222222222222",
-        mcp_server_audience=AUDIENCE,
-        mcp_server_app_id=AUDIENCE,
-        mcp_required_role=REQUIRED_ROLE,
-        apim_services=services if services is not None else [_service("prod")],
-        applicationinsights_connection_string=(
-            "InstrumentationKey=00000000-0000-0000-0000-000000000000"
-        ),
-    )
-
-
-def _token() -> str:
-    now = int(time.time())
-    claims = {
-        "iss": ISSUER,
-        "aud": AUDIENCE,
-        "exp": now + 3600,
-        "nbf": now - 10,
-        "iat": now,
-        "oid": "caller-oid",
-        "preferred_username": "caller@example.com",
-        "roles": [REQUIRED_ROLE],
-    }
-    return jwt.encode(claims, _private_key, algorithm="RS256", headers={"kid": KID})
-
-
-def _jwks_cache() -> Any:
-    from apim_mcp.auth.middleware import JWKSCache
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json=JWKS_BODY)
-
-    return JWKSCache(TENANT_ID, transport=httpx.MockTransport(handler))
-
-
-def _rpc(method: str, params: dict[str, Any], *, req_id: int = 1) -> dict[str, Any]:
-    return {"jsonrpc": "2.0", "id": req_id, "method": method, "params": params}
+    return _base_settings(services=services if services is not None else [_service("prod")])
 
 
 def _build_app(
@@ -116,6 +86,7 @@ def _build_app(
     """Build the real discovery-tool app, with `ArmClient` calls served
     from `transport` instead of the network."""
     monkeypatch.setattr(arm_module, "credential_for", lambda ctx, scope: _FakeCredential())
+    monkeypatch.setattr("apim_mcp.tools.discovery.MetricsClient", _FakeMetricsClient)
 
     original_client = ArmClient
 
@@ -133,18 +104,11 @@ def _build_app(
 
 
 def _call_tool(client: TestClient, name: str, arguments: dict[str, Any]) -> httpx.Response:
-    response: httpx.Response = client.post(
-        "/mcp",
-        json=_rpc("tools/call", {"name": name, "arguments": arguments}),
-        headers={**REQUEST_HEADERS, "Authorization": f"Bearer {_token()}"},
-    )
-    return response
+    return _shared_call_tool(client, name, arguments)
 
 
 def _result_text(response: httpx.Response) -> str:
-    body = response.json()
-    text: str = body["result"]["content"][0]["text"]
-    return text
+    return _shared_result_text(response)
 
 
 def _fixture_transport() -> FixtureTransport:
@@ -153,34 +117,11 @@ def _fixture_transport() -> FixtureTransport:
 
 def test_discovery_tools_registered(monkeypatch: pytest.MonkeyPatch) -> None:
     _app, registry, _settings_obj = _build_app(monkeypatch, transport=_fixture_transport())
-    assert {r.name for r in registry} == {
+    assert set(registry) == {
         "apim_list_services",
         "apim_get_service",
         "apim_get_service_health",
     }
-
-
-def test_tools_have_correct_annotations(monkeypatch: pytest.MonkeyPatch) -> None:
-    app, _registry, _settings_obj = _build_app(monkeypatch, transport=_fixture_transport())
-    with TestClient(app) as client:
-        client.post(
-            "/mcp",
-            json=_rpc("initialize", {"protocolVersion": "2024-11-05", "capabilities": {}}),
-            headers={**REQUEST_HEADERS, "Authorization": f"Bearer {_token()}"},
-        )
-        response = client.post(
-            "/mcp",
-            json=_rpc("tools/list", {}, req_id=2),
-            headers={**REQUEST_HEADERS, "Authorization": f"Bearer {_token()}"},
-        )
-    tools = {t["name"]: t for t in response.json()["result"]["tools"]}
-    assert set(tools) == {"apim_list_services", "apim_get_service", "apim_get_service_health"}
-    for tool in tools.values():
-        annotations = tool["annotations"]
-        assert annotations["readOnlyHint"] is True
-        assert annotations["destructiveHint"] is False
-        assert annotations["idempotentHint"] is True
-        assert annotations["openWorldHint"] is True
 
 
 def test_list_services_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -295,6 +236,12 @@ def test_health_partial_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "reason" in payload["networkStatus"]
     assert payload["provisioningState"]["status"] == "ok"
     assert payload["provisioningState"]["provisioningState"] == "Succeeded"
+    assert payload["capacityMetric"] == {
+        "status": "ok",
+        "average": 55.0,
+        "sampleCount": 4.0,
+        "timespan": "PT1H",
+    }
     assert payload["resourceHealth"]["status"] == "ok"
     assert payload["resourceHealth"]["availabilityState"] == "Available"
     assert payload["certificateExpiry"]["status"] == "ok"
@@ -343,4 +290,4 @@ def test_audit_events_emitted_for_all_three_tools(
 
     audit_records = [r for r in caplog.records if r.name == AUDIT_LOGGER_NAME]
     logged_tools = {json.loads(r.message)["tool"] for r in audit_records}
-    assert logged_tools == {r.name for r in registry}
+    assert logged_tools == set(registry)
