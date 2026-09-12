@@ -1,4 +1,4 @@
-"""Tests for src/apim_mcp/settings.py (T-03). See docs/SPEC.md §5.3."""
+"""Tests for src/apim_mcp/settings.py (T-03). See docs/development/SPEC.md §5.3."""
 
 from __future__ import annotations
 

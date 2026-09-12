@@ -1,12 +1,12 @@
-"""The redaction layer from docs/SPEC.md §8.2, §8.3.
+"""The redaction layer from docs/development/SPEC.md §8.2, §8.3.
 
-RBAC (docs/PRINCIPLES.md §5) is the primary control: the managed identity's
+RBAC (docs/development/PRINCIPLES.md §5) is the primary control: the managed identity's
 role grants only `*/read`, so it cannot fetch secrets by construction. This
 module is the *second* layer, for secrets embedded in content the identity
 is legitimately allowed to read — inline credentials in policy XML, tokens
 in log query strings — and for attacker-influenceable free text (API and
 operation descriptions, policy comments, log error messages) that must be
-labelled as untrusted before it reaches the model (docs/PRINCIPLES.md §9).
+labelled as untrusted before it reaches the model (docs/development/PRINCIPLES.md §9).
 
 Every redaction leaves a visible ``[REDACTED:reason]`` marker so the model
 can see that redaction occurred and say so, rather than silently reporting
@@ -38,6 +38,7 @@ _JWT_RE = re.compile(r"\beyJ[A-Za-z0-9_-]{2,}\.[A-Za-z0-9_-]{2,}\.[A-Za-z0-9_-]{
 _SAS_PARAM_RE = re.compile(r"\b(?:sig|sv)=[^&\s\"'<>]+")
 _BASE64_RE = re.compile(r"\b[A-Za-z0-9+/]{40,}={0,2}\b")
 _HEX_RE = re.compile(r"\b[0-9a-fA-F]{32,}\b")
+_URL_RE = re.compile(r"https?://[^\s<>\"']+", re.IGNORECASE)
 
 _SET_HEADER_RE = re.compile(
     r'(?P<open><set-header\s+name="(?P<name>[^"]*)"[^>]*>)(?P<body>.*?)(?P<close></set-header>)',
@@ -115,7 +116,7 @@ def _redact_header_block(match: re.Match[str]) -> str:
 
 
 def redact_policy_xml(xml: str) -> str:
-    """Redact secrets from APIM policy XML per docs/SPEC.md §8.2.
+    """Redact secrets from APIM policy XML per docs/development/SPEC.md §8.2.
 
     - Blanks the `<value>` of any `<set-header>` whose name matches a
       sensitive pattern (Authorization, subscription keys, api keys,
@@ -134,18 +135,23 @@ def redact_policy_xml(xml: str) -> str:
     return strip_control_characters(restored)
 
 
-def redact_free_text(text: str) -> str:
+def redact_free_text(text: str, *, strip_urls: bool = False) -> str:
     """Redact high-entropy secrets from a free-text field (not full policy
     XML) and strip control/zero-width characters. `{{name}}` refs survive."""
     protected, mapping = _protect_named_values(text)
     redacted = _redact_high_entropy(protected)
+    if strip_urls:
+        redacted = _URL_RE.sub(
+            lambda match: strip_url_query_string(match.group(0)),
+            redacted,
+        )
     restored = _restore_named_values(redacted, mapping)
     return strip_control_characters(restored)
 
 
 def wrap_untrusted_content(text: str) -> str:
     """Wrap attacker-influenceable text with the untrusted-content preamble
-    from docs/SPEC.md §8.3 / docs/PRINCIPLES.md §9, after stripping control
+    from docs/development/SPEC.md §8.3 / docs/development/PRINCIPLES.md §9, after stripping control
     and zero-width characters."""
     cleaned = strip_control_characters(text)
     return f"{UNTRUSTED_PREAMBLE}\n---\n{cleaned}\n---"

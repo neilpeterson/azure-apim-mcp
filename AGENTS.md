@@ -6,11 +6,11 @@ Read-only MCP server that answers questions about Azure API Management. Python 3
 
 | Need | Read |
 |---|---|
-| Non-negotiable rules, with rationale | `docs/PRINCIPLES.md` — **read before writing any code** |
-| What to build, in order | `docs/TASKS.md` |
-| Full technical spec | `docs/SPEC.md` |
-| Tenant quirks, environment findings | `docs/RUNBOOK.md` |
-| Deployment, Bicep/infra layout | `docs/DEPLOYMENT.md` |
+| Non-negotiable rules, with rationale | `docs/development/PRINCIPLES.md` — **read before writing any code** |
+| What to build, in order | `docs/development/TASKS.md` |
+| Full technical spec | `docs/development/SPEC.md` |
+| Tenant quirks, environment findings | `docs/operations/RUNBOOK.md` |
+| Deployment, Bicep/infra layout | `docs/operations/DEPLOYMENT.md` |
 
 ## The loop
 
@@ -34,15 +34,15 @@ candidate diff is clean.
 
 ## Working agreement
 
-- **One task at a time**, from `docs/TASKS.md`, in order, unless the task is marked `[PARALLEL-SAFE]`.
-- **Read the referenced spec section** (`docs/SPEC.md` §N) before starting. The task list is a summary, not the requirement.
+- **One task at a time**, from `docs/development/TASKS.md`, in order, unless the task is marked `[PARALLEL-SAFE]`.
+- **Read the referenced spec section** (`docs/development/SPEC.md` §N) before starting. The task list is a summary, not the requirement.
 - **Tests before implementation.** Every task lists named tests in its acceptance criteria. Write them failing, then make them pass.
 - **Never call live Azure.** Tests run against recorded fixtures in `tests/fixtures/`. If you need a fixture that does not exist, add a recorder entry in `scripts/record_fixtures.py` and stop — a human runs it.
-- **Update `docs/TASKS.md`** — tick the checkboxes as you complete them. That file is the shared state between sessions.
+- **Update `docs/development/TASKS.md`** — tick the checkboxes as you complete them. That file is the shared state between sessions.
 
 ## The ten principles
 
-Summary only. Numbering matches `docs/PRINCIPLES.md` exactly — read that file for rationale, violation examples, and which test enforces each one.
+Summary only. Numbering matches `docs/development/PRINCIPLES.md` exactly — read that file for rationale, violation examples, and which test enforces each one.
 
 1. **Credential seam.** All downstream calls go through `credential_for(ctx, scope)`. Never construct a credential elsewhere.
 2. **Explicit scope.** Always pass `ARM_SCOPE` or `LOGS_SCOPE`. No defaults, even though v1 ignores it.
@@ -75,4 +75,4 @@ make inspect    # MCP Inspector against local server
 
 ## When you are stuck
 
-Do not guess at Azure API shapes. If a response schema is unclear, say so and stop rather than inventing field names. `docs/SPEC.md` §14 lists the open questions that only a human can resolve — if you hit one, note it in `docs/TASKS.md` and move to the next task.
+Do not guess at Azure API shapes. If a response schema is unclear, say so and stop rather than inventing field names. `docs/development/SPEC.md` §14 lists the open questions that only a human can resolve — if you hit one, note it in `docs/development/TASKS.md` and move to the next task.

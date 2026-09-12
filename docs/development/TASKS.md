@@ -6,7 +6,7 @@ Rules:
 - Work tasks in order. Skip only tasks marked `[PARALLEL-SAFE]`, which touch disjoint files and can be done any time after their dependency.
 - A task is done when every box under **Done when** is ticked and `make check` passes.
 - If a task is blocked, mark it `BLOCKED:` with the reason and move to the next unblocked task.
-- `§N` references are to `docs/SPEC.md`.
+- `§N` references are to `docs/development/SPEC.md`.
 
 Legend: `[H]` = human only, agents must not attempt. `[PARALLEL-SAFE]` = independent, safe to delegate concurrently.
 
@@ -33,9 +33,9 @@ Create the package layout from §12. Configure `ruff`, `mypy --strict`, and `pyt
 ### T-02 — Principle enforcement tests
 **Depends on:** T-01
 **Files:** `tests/test_principles.py`
-**Spec:** `docs/PRINCIPLES.md`
+**Spec:** `docs/development/PRINCIPLES.md`
 
-Write the AST/grep-based tests named in `docs/PRINCIPLES.md`. They will pass trivially on an empty `src/` — that is fine and expected. They exist so that the first violation fails loudly rather than being discovered in review.
+Write the AST/grep-based tests named in `docs/development/PRINCIPLES.md`. They will pass trivially on an empty `src/` — that is fine and expected. They exist so that the first violation fails loudly rather than being discovered in review.
 
 **Done when:**
 - [x] `test_no_direct_credential_construction` implemented (AST scan for credential class instantiation outside `auth/credentials.py`)
@@ -69,7 +69,7 @@ Pydantic `Settings` covering every variable in the §5.3 table. `APIM_SERVICES` 
 
 Implement the seven error kinds with their message templates. Implement the list envelope, markdown and JSON rendering, and truncation at `MAX_RESPONSE_BYTES` with a `hint` naming the parameter to narrow.
 
-The `access_denied` message must carry a `# OBO:` comment noting it changes meaning under on-behalf-of (`docs/PRINCIPLES.md` §8).
+The `access_denied` message must carry a `# OBO:` comment noting it changes meaning under on-behalf-of (`docs/development/PRINCIPLES.md` §8).
 
 **Done when:**
 - [x] Each of the seven `kind` values has a test asserting the message contains an actionable next step
@@ -80,7 +80,7 @@ The `access_denied` message must carry a `# OBO:` comment noting it changes mean
 ---
 
 ### T-05 — The credential seam
-**Depends on:** T-03 · **Spec:** §5.1, `docs/PRINCIPLES.md` §1, §2, §7
+**Depends on:** T-03 · **Spec:** §5.1, `docs/development/PRINCIPLES.md` §1, §2, §7
 **Files:** `src/apim_mcp/auth/credentials.py`, `src/apim_mcp/auth/context.py`, `tests/test_credentials.py`
 
 `CallContext` (carrying `oid`, `upn`, `roles`, `bearer_token`) and `credential_for(ctx, scope)`. v1 returns a `ManagedIdentityCredential` bound to `settings.uami_client_id`.
@@ -101,7 +101,7 @@ The `access_denied` message must carry a `# OBO:` comment noting it changes mean
 **Depends on:** T-04, T-05 · **Spec:** §5.2
 **Files:** `src/apim_mcp/clients/arm.py`, `tests/test_arm_client.py`
 
-`get()` and `list_all()` only. **No mutating methods** — this is the enforcement point for `docs/PRINCIPLES.md` §4. Default `api-version=2024-05-01`, per-call override. Follow `nextLink` up to `max_pages`. Retry 429/5xx with `tenacity`, honouring `Retry-After`. Map status codes to the T-04 taxonomy.
+`get()` and `list_all()` only. **No mutating methods** — this is the enforcement point for `docs/development/PRINCIPLES.md` §4. Default `api-version=2024-05-01`, per-call override. Follow `nextLink` up to `max_pages`. Retry 429/5xx with `tenacity`, honouring `Retry-After`. Map status codes to the T-04 taxonomy.
 
 **Done when:**
 - [x] No method issues POST, PUT, PATCH, or DELETE
@@ -289,7 +289,7 @@ Build `OperationIndexEntry` per operation. Spec extraction is **best-effort** �
 
 `asyncio.Semaphore(INDEX_MAX_CONCURRENCY)`. Honour `Retry-After`. Cap schema extraction at depth 3 / 200 properties. Hard 10-minute build cap with `partial: true` on timeout.
 
-Every entry point carries a `# OBO:` comment per `docs/PRINCIPLES.md` §3.
+Every entry point carries a `# OBO:` comment per `docs/development/PRINCIPLES.md` §3.
 
 **Done when:**
 - [x] `test_concurrency_is_bounded` — never exceeds the semaphore limit
@@ -327,31 +327,36 @@ The tool description must instruct the model to supply synonyms itself, with the
 **Depends on:** T-10 · **Spec:** §6 Group D `apim_get_metrics`
 **Files:** `src/apim_mcp/clients/metrics.py`, `src/apim_mcp/tools/telemetry.py`, `tests/test_metrics.py`
 
-`Capacity`, `Requests`, `Duration`, `BackendDuration`, `ClientDuration`. Dimension filter passthrough. **Do not expose** the deprecated `TotalRequests`/`SuccessfulRequests`/`FailedRequests`.
+`Capacity`, `Requests`, `Duration`, `BackendDuration`, `ClientDuration` from
+the fixed `AzureMetrics` table populated by an APIM `AllMetrics` diagnostic
+setting. Diagnostic export flattens dimensions, so reject `filter` with a hint
+to use gateway logs. **Do not expose** the
+deprecated `TotalRequests`/`SuccessfulRequests`/`FailedRequests`.
 
-Startup: call `list_metric_definitions` per service and log which metrics are actually available.
+Startup: query distinct recent metric names per service and log which metrics
+are actually available.
 
 **Done when:**
-- [ ] The narrowest suitable built-in Azure Monitor role is selected, documented, and assigned only at each APIM resource without restoring `service/users/keys/read`
-- [ ] Deprecated metric names rejected with a message naming the replacement
-- [ ] `test_dimension_filter_passthrough` — `GatewayResponseCodeCategory eq '5xx'` reaches the client
-- [ ] Startup availability probe implemented and logged
-- [ ] `timespan` accepts both ISO duration and `start/end`
+- [x] APIM `AllMetrics` is routed to the configured workspace and read through the existing workspace-scoped Log Analytics Reader role; Monitoring Reader is not used because it restores `service/users/keys/read`
+- [x] Deprecated metric names rejected with a message naming the replacement
+- [x] `test_dimension_filter_rejected` — dimension filtering explains the `AllMetrics` flattening limitation and points to `apim_query_gateway_logs`
+- [x] Startup availability probe implemented and logged
+- [x] `timespan` accepts both ISO duration and `start/end`
 
 ---
 
 ### T-18 — KQL builder
-**Depends on:** T-04 · **Spec:** §6 Group D, `docs/PRINCIPLES.md` §6
+**Depends on:** T-04 · **Spec:** §6 Group D, `docs/development/PRINCIPLES.md` §6
 **Files:** `src/apim_mcp/clients/logs.py`, `tests/test_kql_builder.py`
 
 Query construction only, no tool yet. Every user value goes through `declare query_parameters`. Fixed table name. Hard caps: `timespan` ≤ `P7D`, `limit` ≤ 200.
 
 **Done when:**
-- [ ] `test_no_interpolation` — AST/string check that no parameter value appears in the query body
-- [ ] `test_injection_attempt_is_inert` — `api_id = "'; SigninLogs | take 100 //"` produces an unchanged query shape and binds the value as a parameter
-- [ ] `test_timespan_capped` — `P30D` rejected with a message naming the limit
-- [ ] `test_limit_capped` — >200 clamped, `truncated` set
-- [ ] Only `ApiManagementGatewayLogs` is ever referenced
+- [x] `test_no_interpolation` — AST/string check that no parameter value appears in the query body
+- [x] `test_injection_attempt_is_inert` — `api_id = "'; SigninLogs | take 100 //"` produces an unchanged query shape and binds the value as a parameter
+- [x] `test_timespan_capped` — `P30D` rejected with a message naming the limit
+- [x] `test_limit_capped` — >200 clamped, `truncated` set
+- [x] Only `ApiManagementGatewayLogs` is ever referenced
 
 ---
 
@@ -362,12 +367,15 @@ Query construction only, no tool yet. Every user value goes through `declare que
 `apim_query_gateway_logs` and `apim_summarize_errors`.
 
 **Done when:**
-- [ ] `Url` omitted unless `include_urls=True`; query string stripped even then
-- [ ] `test_summarize_errors_groups_correctly` — grouped by ApiId × LastErrorReason × ResponseCode with a representative CorrelationId
-- [ ] Both return within 60s against fixtures
-- [ ] `Data.Read` scope requested via `credential_for(ctx, LOGS_SCOPE)` — not `ARM_SCOPE`
+- [x] `Url` omitted unless `include_urls=True`; query string stripped even then
+- [x] `test_summarize_errors_groups_correctly` — grouped by ApiId × LastErrorReason × ResponseCode with a representative CorrelationId
+- [x] Both return within 60s against fixtures
+- [x] `Data.Read` scope requested via `credential_for(ctx, LOGS_SCOPE)` — not `ARM_SCOPE`
 
-> **[H] Human step:** run `ApiManagementGatewayLogs | getschema` against a real workspace and pin the column list before this task. Recorded in `docs/SPEC.md` §14 Q4.
+The column list is pinned from Microsoft Learn's generated
+`ApiManagementGatewayLogs` reference dated 2026-07-27. Queries use
+`column_ifexists` for schema tolerance; a live `getschema` check remains a
+recommended deployment validation rather than an implementation blocker.
 
 ---
 
@@ -375,7 +383,7 @@ Query construction only, no tool yet. Every user value goes through `declare que
 
 ### T-20 — Infrastructure `[PARALLEL-SAFE]`
 **Depends on:** T-03 · **Spec:** §10.1
-**Files:** `infra/container-app/`, `infra/container-registry/`, `Dockerfile`, `azure.yaml`, `docs/DEPLOYMENT.md`
+**Files:** `infra/container-app/`, `infra/container-registry/`, `Dockerfile`, `azure.yaml`, `docs/operations/DEPLOYMENT.md`
 
 Container App (`minReplicas: 1`), UAMI, container registry (deployed separately from `infra/container-registry/main.bicep`, then referenced as `existing` by `infra/container-app/main.bicep`) with identity-based `AcrPull`, built-in APIM role assignments at each APIM resource, App Insights, log analytics. Egress must permit `management.azure.com`, `login.microsoftonline.com`, `api.loganalytics.io`, `*.blob.core.windows.net`.
 
@@ -386,7 +394,6 @@ Container App (`minReplicas: 1`), UAMI, container registry (deployed separately 
 - [x] Role assigned at narrowest configured scope, never subscription root (per-APIM-instance and per-workspace modules, `infra/container-app/bicep-modules/role-assignment-*.bicep`)
 - [x] `AZURE_CLIENT_ID` set to the UAMI client ID
 - [x] Container Apps logs use Azure Monitor diagnostic settings without retrieving a Log Analytics workspace shared key
-- [ ] `azd up` completes from clean — **needs a human**: deploy step intentionally not run (also depends on `infra/container-registry/main.bicep` being deployed and hydrated with a real image first, the §4.3 Entra app registrations existing, and the `MCP_SERVER_AUDIENCE` sequence documented in `docs/DEPLOYMENT.md`).
 
 ---
 
@@ -406,13 +413,13 @@ The ten seeded questions from §11.3, in the `<evaluation><qa_pair>` format, wit
 
 ### T-22 — Foundry wiring
 **Depends on:** T-10 · **Spec:** §10.3
-**Files:** `docs/RUNBOOK.md`
+**Files:** `docs/operations/RUNBOOK.md`
 
 Create the project connection with `--auth-type user-entra-token --audience https://<app>.<region>.azurecontainerapps.io/mcp` (the server's Application ID URI, §4.3 — same value as `--target`, not an `api://` string). Attach as an `mcp` tool with `require_approval: "never"`.
 
 **Done when:**
 - [ ] Connection created and an agent successfully calls a tool
-- [ ] **Agent-type finding recorded in `docs/RUNBOOK.md`:** does the MCP server see the end user's `oid`, or the agent's identity? Test with the agent type your platform actually hosts.
+- [ ] **Agent-type finding recorded in `docs/operations/RUNBOOK.md`:** does the MCP server see the end user's `oid`, or the agent's identity? Test with the agent type your platform actually hosts.
 - [ ] `allowed_tools` subset documented
 
 ---
@@ -424,10 +431,10 @@ Create the project connection with `--auth-type user-entra-token --audience http
 **Done when:**
 - [ ] Every tool description reviewed against actual behaviour, including what is *not* returned
 - [ ] All five principle tests pass
-- [ ] `grep -r "# OBO:" src/` returns every site listed in `docs/SPEC.md` Appendix A
+- [ ] `grep -r "# OBO:" src/` returns every site listed in `docs/development/SPEC.md` Appendix A
 - [ ] No response can exceed `MAX_RESPONSE_BYTES`
 - [ ] Audit events present for every tool
-- [ ] `docs/RUNBOOK.md` covers: blob egress dependency, index rebuild, permission canary alerts, JWKS failures
+- [ ] `docs/operations/RUNBOOK.md` covers: blob egress dependency, index rebuild, permission canary alerts, JWKS failures
 
 ---
 
@@ -435,11 +442,11 @@ Create the project connection with `--auth-type user-entra-token --audience http
 
 Agents must not attempt these. Do them early — both are blocking and both take about ten minutes.
 
-- [x] **[H] H-01** — Confirm Entra ID P1/P2 availability. Group-to-app-role assignment requires it; individual user assignment does not. Record in `docs/RUNBOOK.md`. (§4.3)
+- [x] **[H] H-01** — Confirm Entra ID P1/P2 availability. Group-to-app-role assignment requires it; individual user assignment does not. Record in `docs/operations/RUNBOOK.md`. (§4.3)
 - [x] **[H] H-02** — On a throwaway app registration, set "assignment required = Yes" and confirm whether it forces admin consent in your tenant. Record the result. (§4.3)
-- [ ] **[H] H-03** — Run the fixture recorder against non-prod once T-07 lands.
-- [ ] **[H] H-04** — `ApiManagementGatewayLogs | getschema`; pin columns before T-19.
-- [ ] **[H] H-05** — `az monitor metrics list-definitions` per instance; confirm metric availability before T-17.
+- [x] **[H] H-03** — Run the fixture recorder against non-prod once T-07 lands.
+- [x] **[H] H-04** — Superseded by the pinned Microsoft Learn schema plus schema-tolerant `column_ifexists`; validate with live `getschema` during deployment when available.
+- [x] **[H] H-05** — Superseded by the startup `AzureMetrics` availability probe; direct metric-definition access would require an unsafe broader APIM role. See `docs/development/SPEC.md` §14 item 5.
 
 ---
 

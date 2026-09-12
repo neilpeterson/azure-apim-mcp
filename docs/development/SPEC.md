@@ -1,5 +1,7 @@
 # APIM Knowledge MCP Server — Build Specification
 
+This document is the normative implementation specification.
+
 **Status:** v1 spec, ready to implement
 **Audience:** a coding agent (or engineer) implementing from scratch
 **Target:** a read-only remote MCP server that answers questions about Azure API Management instances, consumable from GitHub Copilot in VS Code and from Microsoft Foundry agents.
@@ -49,18 +51,20 @@ Python is the right choice here. `azure-identity` has first-class `ManagedIdenti
 
 TypeScript is a defensible alternative (the MCP TS SDK is arguably the reference implementation, and the official Azure MCP Server is .NET), but Python's Azure Monitor and identity story is better for this specific workload. Stay with Python.
 
-**The one place Python will bite you:** `azure-mgmt-apimanagement` lags the ARM API. It does not track preview API versions, and some surfaces (notably anything added in `2025-09-01-preview`) are missing entirely. Do not fight the SDK.
+**The one place Python will bite you:** generated management SDKs lag the ARM
+API and do not consistently expose preview surfaces. Do not mix generated SDK
+clients and direct REST paths for the same service.
 
-**Rule:** use `azure-mgmt-apimanagement` where it works. Where it doesn't, call ARM directly over `httpx` with a bearer token from the same credential object. Build one thin `ArmClient` wrapper (§5.2) and route both paths through it so the credential seam in §5.1 stays single.
+**Rule:** use the thin `ArmClient` wrapper (§5.2) for APIM management reads.
+It keeps API versions explicit and routes every request through the credential
+seam in §5.1 without carrying an otherwise-unused generated SDK dependency.
 
 ### 1.2 Dependencies
 
 ```
 mcp[cli]>=1.2
 azure-identity>=1.19
-azure-mgmt-apimanagement>=4.0
 azure-monitor-query>=1.4
-azure-mgmt-resourcegraph>=8.0
 httpx>=0.27
 pydantic>=2.9
 PyJWT[crypto]>=2.9
@@ -145,10 +149,12 @@ assignment to the resource group or subscription.
 
 The API Management Service Reader Role does not include
 `Microsoft.Insights/metrics/read` or
-`Microsoft.Insights/metricDefinitions/read`. Before implementing Group D
-metrics in T-17, select and document the narrowest built-in supplemental role
-that grants those actions without restoring APIM user-key access. Do not add
-an unrelated service role preemptively.
+`Microsoft.Insights/metricDefinitions/read`. No built-in supplemental role
+grants those actions without also granting broad `*/read`, which would restore
+APIM user-key access, and this tenant does not permit creating custom roles.
+Route each APIM service's `AllMetrics` diagnostic category to its configured
+Log Analytics workspace and query the fixed `AzureMetrics` table using the
+workspace-scoped built-in **Log Analytics Reader** role.
 
 For Log Analytics, assign the built-in **Log Analytics Reader** role on the workspace only. Note that this built-in role already excludes `workspaces/sharedKeys/read`, which is what you want.
 
@@ -446,11 +452,21 @@ Standard list tools. Backends: return `url`, `protocol`, `title`, `description`,
 
 #### `apim_get_metrics`
 - Params: `service`, `metric: Literal[...]`, `timespan: str = "PT1H"` (ISO 8601 duration or `start/end`), `interval: str = "PT5M"`, `aggregation`, `filter: str | None`, `response_format`
-- Source: `azure-monitor-query` `MetricsQueryClient` against namespace `Microsoft.ApiManagement/service`.
+- Source: the fixed `AzureMetrics` Log Analytics table populated by each
+  APIM service's `AllMetrics` diagnostic setting.
 - Primary metrics: `Capacity`, `Requests`, `Duration`, `BackendDuration`, `ClientDuration`.
-- `Requests` supports dimensions including `BackendResponseCode`, `GatewayResponseCode`, `GatewayResponseCodeCategory`, `Location`, `Hostname`, `LastErrorReason` — expose `filter` as an OData dimension filter, e.g. `GatewayResponseCodeCategory eq '5xx'`.
+- Direct `Requests` metrics support dimensions including
+  `BackendResponseCode`, `GatewayResponseCode`,
+  `GatewayResponseCodeCategory`, `Location`, `Hostname`, and
+  `LastErrorReason`, but diagnostic-settings export flattens those dimensions.
+  The v1 Log Analytics implementation therefore returns aggregate metrics
+  only. If `filter` is supplied, return `invalid_input` with a hint to use
+  `apim_query_gateway_logs` for dimensioned request/error analysis.
 - The older `TotalRequests` / `SuccessfulRequests` / `FailedRequests` metrics are deprecated in favour of `Requests` with dimension filters. Do not expose them.
-- **Implementation task:** call `list_metric_definitions` at startup for each configured service and log which of the above are actually present. Availability varies by SKU and platform version; failing at query time with an opaque error is worse than knowing at boot.
+- **Implementation task:** query distinct `MetricName` values from
+  `AzureMetrics` at startup for each configured service and log which primary
+  metrics are actually present. Diagnostic export has ingestion latency, so
+  an empty startup result is a warning rather than a readiness failure.
 
 #### `apim_query_gateway_logs`
 
@@ -468,7 +484,11 @@ Parameterized, **not** free-form KQL. This is deliberate: the managed identity c
 - Builds a KQL query over `ApiManagementGatewayLogs` with all user input passed as **bound query parameters via a `declare query_parameters` preamble** — never string-interpolated. String interpolation here is a KQL injection hole that lets a prompt-injected model pivot to other tables in the workspace.
 - Returns: `TimeGenerated`, `ApiId`, `OperationId`, `Method`, `ResponseCode`, `TotalTime`, `BackendTime`, `IsRequestSuccess`, `LastErrorReason`, `LastErrorSource`, `LastErrorMessage`, `CorrelationId`, `Region`.
 - **`Url` is omitted by default.** Query strings routinely carry tokens, keys, and PII. Only include when `include_urls=True`, and strip the query string component even then.
-- **Implementation task:** run `ApiManagementGatewayLogs | getschema` once against a real workspace and pin the column list. Do not trust this spec's column names blindly; the schema has changed across APIM versions.
+- Pin the column list against Microsoft Learn's generated
+  `ApiManagementGatewayLogs` table reference and use `column_ifexists` for
+  every projected field so an older workspace schema degrades to empty values
+  rather than failing the tool. Validate with `getschema` against the deployed
+  workspace when available.
 
 #### `apim_summarize_errors`
 Workflow tool. One call replaces the five the model would otherwise make.
@@ -828,7 +848,8 @@ apim-mcp/
 │   │   └── context.py         # CallContext, ContextVar plumbing
 │   ├── clients/
 │   │   ├── arm.py             # ArmClient
-│   │   ├── apim.py            # SDK wrapper + raw-REST fallbacks
+│   │   ├── apim.py            # OpenAPI export over ARM REST
+│   │   ├── _loganalytics.py   # shared workspace-query plumbing
 │   │   ├── metrics.py
 │   │   └── logs.py            # parameterized KQL builder
 │   ├── index/
@@ -836,6 +857,7 @@ apim-mcp/
 │   │   ├── search.py          # BM25
 │   │   └── tokenize.py        # camelCase/snake_case splitting
 │   ├── tools/
+│   │   ├── _common.py         # shared tool input resolution
 │   │   ├── discovery.py       # Group A
 │   │   ├── config.py          # Group B
 │   │   ├── search.py          # Group C
@@ -846,6 +868,10 @@ apim-mcp/
 │       ├── formatting.py      # markdown/json rendering, truncation
 │       └── telemetry.py       # audit events
 ├── infra/                     # Bicep + azd
+├── docs/
+│   ├── development/           # principles, specification, task state
+│   ├── features/              # feature behavior and usage
+│   └── operations/            # deployment and runbook guidance
 ├── evals/questions.xml
 ├── tests/
 └── README.md
@@ -1008,7 +1034,13 @@ If tenant admin consent is genuinely unobtainable on any timeline, and per-user 
 1. **Entra ID P1 availability** — determines whether group-based app-role assignment works (§4.3). Blocking.
 2. **"Assignment required" and admin consent** — test on a throwaway app registration (§4.3). Blocking.
 3. **Foundry agent type** — prompt agents vs hosted agents, and whether end-user token passthrough works for yours (§10.3). Non-blocking for v1, blocking for Appendix A.
-4. **Log Analytics schema** — run `ApiManagementGatewayLogs | getschema` and pin the real column list (§Group D).
-5. **Metric availability by SKU** — run `az monitor metrics list-definitions` per instance (§Group D).
+4. **Log Analytics schema** — resolved against Microsoft Learn's generated
+   `ApiManagementGatewayLogs` schema dated 2026-07-27; live `getschema`
+   remains a deployment validation (§Group D).
+5. **Metric availability by SKU** — resolved at startup by querying distinct
+   recent `MetricName` values from each service's `AzureMetrics` export
+   (§Group D). Direct metric-definition access is not used because no
+   acceptable built-in APIM-scoped role grants it without also restoring
+   secret-adjacent key-read permissions.
 6. **API count per instance** — determines index build time and whether §7 concurrency limits need tuning.
 7. **Whether any instance is or will be network-isolated** — affects the blob egress requirement for spec export (§Group B) and would push Foundry onto Standard agent setup with BYO VNet.

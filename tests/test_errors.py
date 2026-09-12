@@ -1,4 +1,4 @@
-"""Tests for the error taxonomy (T-04). See docs/SPEC.md §8.1."""
+"""Tests for the error taxonomy (T-04). See docs/development/SPEC.md §8.1."""
 
 from __future__ import annotations
 
@@ -54,12 +54,14 @@ def test_invalid_input_names_actionable_next_step() -> None:
     assert "PT1H" in error.message
 
 
-def test_upstream_error_names_actionable_next_step() -> None:
+def test_upstream_error_names_actionable_next_step(caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level("WARNING", logger="apim_mcp.common.errors")
     error = upstream_error(log_detail="500 from ARM: boom")
     assert error.kind == "upstream_error"
     assert "Try again" in error.message
     # internals must never leak into the model-facing message
     assert "boom" not in error.message
+    assert "500 from ARM: boom" in caplog.text
 
 
 def test_index_unavailable_names_actionable_next_step() -> None:
@@ -108,7 +110,7 @@ def test_tool_error_is_frozen() -> None:
 
 
 def test_access_denied_has_obo_comment() -> None:
-    """docs/PRINCIPLES.md §8: the access_denied message changes meaning
+    """docs/development/PRINCIPLES.md §8: the access_denied message changes meaning
     under on-behalf-of, and that must be flagged with a `# OBO:` comment."""
     source = inspect.getsource(errors)
     assert "# OBO:" in source

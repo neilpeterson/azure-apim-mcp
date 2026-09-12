@@ -1,4 +1,4 @@
-"""Tests for the credential seam (T-05). See docs/SPEC.md §5.1."""
+"""Tests for the credential seam (T-05). See docs/development/SPEC.md §5.1."""
 
 from __future__ import annotations
 
@@ -110,7 +110,7 @@ def test_local_dev_credential_opt_in_returns_azure_cli_credential(
     """`APIM_MCP_LOCAL_DEV_CREDENTIAL=1` is the only way to get anything
     other than `ManagedIdentityCredential` out of the seam - still
     constructed inside `auth/credentials.py`, so this does not violate
-    `docs/PRINCIPLES.md` §1."""
+    `docs/development/PRINCIPLES.md` §1."""
     _set_env(monkeypatch)
     monkeypatch.setenv("APIM_MCP_LOCAL_DEV_CREDENTIAL", "1")
     ctx = _sample_context()

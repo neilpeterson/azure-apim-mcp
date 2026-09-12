@@ -5,7 +5,8 @@ and connecting an MCP client. This is the authoritative operator guide for
 both application and infrastructure deployment.
 
 For the authentication model and security rationale, see
-[`AUTH.md`](AUTH.md). For the normative requirements, see `docs/SPEC.md`
+[`AUTH.md`](../features/AUTH.md). For the normative requirements, see
+`docs/development/SPEC.md`
 §4 and §10.
 
 ## What gets deployed
@@ -193,7 +194,7 @@ is needed:
 The optional client registration does not receive the Container App URL. Only
 the server registration's Application ID URIs change after deployment.
 
-See [`AUTH.md`](AUTH.md) for token validation, role enforcement, OAuth
+See [`AUTH.md`](../features/AUTH.md) for token validation, role enforcement, OAuth
 discovery, and the v1 shared-managed-identity authorization boundary.
 
 ## 2. Configure deployment parameters
@@ -269,12 +270,14 @@ The template assigns:
 
 - the built-in **API Management Service Reader Role** to the UAMI on each
   individual APIM resource; and
+- an APIM diagnostic setting that routes `AllMetrics` to each service's
+  configured Log Analytics workspace; and
 - the built-in **Log Analytics Reader** role to the UAMI on each configured
   workspace.
 
 It never grants these runtime roles at resource-group or subscription scope.
-Do not replace the APIM role with **Reader** or **Monitoring Reader**, because
-their `*/read` grant would include APIM user-key reads.
+See [`TELEMETRY.md`](../features/TELEMETRY.md) for the role-safety rationale,
+diagnostic export behavior, and validation steps.
 
 ## 3. Validate the templates
 

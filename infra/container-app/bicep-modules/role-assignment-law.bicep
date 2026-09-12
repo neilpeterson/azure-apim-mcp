@@ -1,5 +1,5 @@
 // Assigns the built-in "Log Analytics Reader" role to the server's managed
-// identity on a single Log Analytics workspace (docs/SPEC.md §4.2). This
+// identity on a single Log Analytics workspace (docs/development/SPEC.md §4.2). This
 // built-in role already excludes workspaces/sharedKeys/read, so no custom
 // role is needed for telemetry access.
 //

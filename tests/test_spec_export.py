@@ -1,4 +1,4 @@
-"""Tests for `apim_mcp.clients.apim` (T-14). See docs/SPEC.md §6 Group B
+"""Tests for `apim_mcp.clients.apim` (T-14). See docs/development/SPEC.md §6 Group B
 `apim_get_api_spec`.
 """
 

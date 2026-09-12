@@ -1,16 +1,19 @@
-"""The error taxonomy from docs/SPEC.md §8.1.
+"""The error taxonomy from docs/development/SPEC.md §8.1.
 
 Tool failures are returned *inside* the tool result, never raised as
-protocol-level exceptions (`docs/PRINCIPLES.md` §8). Every builder here
+protocol-level exceptions (`docs/development/PRINCIPLES.md` §8). Every builder here
 returns a frozen :class:`ToolError` with a message that names an actionable
 next step, so the model can act on a failure instead of just reporting it.
 """
 
 from __future__ import annotations
 
+import logging
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
+
+logger = logging.getLogger(__name__)
 
 ErrorKind = Literal[
     "access_denied",
@@ -41,7 +44,7 @@ def access_denied(resource: str) -> ToolError:
     # OBO: under on-behalf-of, a 403 here means the *calling user* lacks
     # access to `resource`, not that the server's identity is misconfigured.
     # This message must be rewritten before that migration ships — see the
-    # retrofit checklist in docs/SPEC.md Appendix A.
+    # retrofit checklist in docs/development/SPEC.md Appendix A.
     return ToolError(
         kind="access_denied",
         message=(
@@ -87,7 +90,9 @@ def invalid_input(parameter: str, example: str) -> ToolError:
 
 def upstream_error(*, log_detail: str | None = None) -> ToolError:
     """Generic 5xx result. `log_detail` is for server-side logging only —
-    never returned to the model, per docs/PRINCIPLES.md §8."""
+    never returned to the model, per docs/development/PRINCIPLES.md §8."""
+    if log_detail is not None:
+        logger.warning("upstream Azure error: %s", log_detail)
     return ToolError(
         kind="upstream_error",
         message=(

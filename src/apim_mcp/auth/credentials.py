@@ -1,6 +1,6 @@
 """The credential seam — every downstream call goes through this module.
 
-See `docs/SPEC.md` §5.1 and `docs/PRINCIPLES.md` §1, §2, §7. This is the
+See `docs/development/SPEC.md` §5.1 and `docs/development/PRINCIPLES.md` §1, §2, §7. This is the
 single point that the on-behalf-of retrofit (Appendix A) and the client-token
 retrofit (Appendix B) both modify. No other module may construct a
 credential directly — see `tests/test_principles.py::test_no_direct_credential_construction`.
@@ -23,7 +23,7 @@ LOGS_SCOPE = "https://api.loganalytics.io/.default"
 # cannot acquire a token unless the process is actually running on an
 # Azure resource with that identity attached, which no laptop is. Setting
 # this to "1" swaps in `az login`'s cached credential instead, so
-# `make run` can hit real APIM from a dev machine. See docs/LOCAL_TESTING.md.
+# `make run` can hit real APIM from a dev machine. See docs/development/LOCAL_TESTING.md.
 _LOCAL_DEV_CREDENTIAL_ENV = "APIM_MCP_LOCAL_DEV_CREDENTIAL"
 
 _mi: AsyncTokenCredential | None = None

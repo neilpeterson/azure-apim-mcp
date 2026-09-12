@@ -1,4 +1,4 @@
-// Infrastructure for the APIM Knowledge MCP server (docs/SPEC.md §10.1).
+// Infrastructure for the APIM Knowledge MCP server (docs/development/SPEC.md §10.1).
 //
 // Provisions: Container App (minReplicas 1) + environment, user-assigned
 // managed identity, Log Analytics workspace + Application Insights for the
@@ -42,16 +42,16 @@ param containerAppName string
 @description('Container image to deploy, e.g. <containerRegistryName>.azurecr.io/apim-mcp:latest. Leave the default placeholder until a real image has been pushed to the registry above; the Container App can be updated in place afterwards.')
 param containerImage string = 'mcr.microsoft.com/k8se/quickstart:latest'
 
-@description('Azure AD tenant ID. Maps to the AZURE_TENANT_ID app setting (docs/SPEC.md §5.3).')
+@description('Azure AD tenant ID. Maps to the AZURE_TENANT_ID app setting (docs/development/SPEC.md §5.3).')
 param azureTenantId string = subscription().tenantId
 
-@description('The server app registration\'s Application (client) ID, a GUID (docs/SPEC.md §4.3). Maps to MCP_SERVER_APP_ID.')
+@description('The server app registration\'s Application (client) ID, a GUID (docs/development/SPEC.md §4.3). Maps to MCP_SERVER_APP_ID.')
 param mcpServerAppId string
 
 @description('Entra app role required to call the server. Maps to MCP_REQUIRED_ROLE.')
 param mcpRequiredRole string = 'Apim.Read'
 
-@description('The APIM_SERVICES allowlist (docs/SPEC.md §5.3): the alias->resourceId mapping the server is permitted to query, and the resource group(s) RBAC will be scoped to. Each entry\'s resourceGroup is derived automatically from resourceId; logAnalyticsWorkspaceId is optional.')
+@description('The APIM_SERVICES allowlist (docs/development/SPEC.md §5.3): the alias->resourceId mapping the server is permitted to query, and the resource group(s) RBAC will be scoped to. Each entry\'s resourceGroup is derived automatically from resourceId; logAnalyticsWorkspaceId is optional.')
 param apimServices array
 
 @description('CPU cores allocated to the container.')
@@ -120,7 +120,7 @@ resource acrPullAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' 
 }
 
 // ---------------------------------------------------------------------------
-// Built-in API Management Service Reader Role (docs/SPEC.md §4.2), assigned
+// Built-in API Management Service Reader Role (docs/development/SPEC.md §4.2), assigned
 // only at each individual APIM resource. It covers the currently implemented
 // configuration, Resource Health, and permission-canary calls while excluding
 // user-key reads and APIM secret-retrieval actions.
@@ -128,6 +128,8 @@ resource acrPullAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' 
 
 var apimServiceReaderRoleId = '71522526-b88f-4d52-b57f-d31fc3546d0d'
 var apimServiceReaderRoleDefinitionId = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', apimServiceReaderRoleId)
+var telemetryServices = filter(apimServices, svc => contains(svc, 'logAnalyticsWorkspaceId') && svc.logAnalyticsWorkspaceId != null)
+var workspaceResourceIds = union(map(telemetryServices, svc => svc.logAnalyticsWorkspaceId), [])
 
 module apimServiceReaderRoleAssignments 'bicep-modules/role-assignment-apim.bicep' = [
   for svc in apimServices: {
@@ -141,21 +143,36 @@ module apimServiceReaderRoleAssignments 'bicep-modules/role-assignment-apim.bice
   }
 ]
 
+// No safe built-in role grants direct Microsoft.Insights metric reads:
+// Monitoring Reader includes */read and would restore APIM user-key reads.
+// Route AllMetrics to the configured workspace instead; the existing,
+// narrowly-scoped Log Analytics Reader assignment can read AzureMetrics.
+module apimTelemetryDiagnosticSettings 'bicep-modules/diagnostic-settings-apim.bicep' = [
+  for svc in telemetryServices: {
+    name: 'diagnostics-apim-${svc.alias}'
+    scope: resourceGroup(split(svc.resourceId, '/')[2], split(svc.resourceId, '/')[4])
+    params: {
+      apimServiceName: last(split(svc.resourceId, '/'))
+      workspaceResourceId: svc.logAnalyticsWorkspaceId
+    }
+  }
+]
+
 // Built-in Log Analytics Reader on each configured workspace, scoped to
 // that workspace only (already excludes workspaces/sharedKeys/read).
 module lawRoleAssignments 'bicep-modules/role-assignment-law.bicep' = [
-  for svc in apimServices: if (contains(svc, 'logAnalyticsWorkspaceId') && svc.logAnalyticsWorkspaceId != null) {
-    name: 'rbac-law-${svc.alias}'
-    scope: resourceGroup(split(svc.logAnalyticsWorkspaceId, '/')[2], split(svc.logAnalyticsWorkspaceId, '/')[4])
+  for workspaceResourceId in workspaceResourceIds: {
+    name: 'rbac-law-${uniqueString(workspaceResourceId)}'
+    scope: resourceGroup(split(workspaceResourceId, '/')[2], split(workspaceResourceId, '/')[4])
     params: {
-      workspaceName: last(split(svc.logAnalyticsWorkspaceId, '/'))
+      workspaceName: last(split(workspaceResourceId, '/'))
       principalId: uami.properties.principalId
     }
   }
 ]
 
 // ---------------------------------------------------------------------------
-// Container Apps (docs/SPEC.md §10.1)
+// Container Apps (docs/development/SPEC.md §10.1)
 // ---------------------------------------------------------------------------
 
 resource containerAppEnv 'Microsoft.App/managedEnvironments@2024-03-01' = {

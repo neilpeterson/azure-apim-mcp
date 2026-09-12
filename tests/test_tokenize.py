@@ -1,4 +1,4 @@
-"""Tests for docs/SPEC.md §7.3 tokenization."""
+"""Tests for docs/development/SPEC.md §7.3 tokenization."""
 
 from __future__ import annotations
 

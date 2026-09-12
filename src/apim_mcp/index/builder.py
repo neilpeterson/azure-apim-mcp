@@ -1,4 +1,4 @@
-"""The API index build pipeline (T-15). See docs/SPEC.md §7.1-7.3, §7.5.
+"""The API index build pipeline (T-15). See docs/development/SPEC.md §7.1-7.3, §7.5.
 
 Per configured service: list current-revision APIs, list each API's
 operations, and (best-effort) export each API's OpenAPI document to pull
@@ -6,12 +6,12 @@ out parameter/schema property names for `search_text`. Spec export is
 allowed to fail per-API - SOAP passthrough, GraphQL, and WebSocket APIs
 cannot export - and a failure there degrades that one API to
 `spec_indexed=False` rather than failing the whole build
-(`docs/SPEC.md` §7.2).
+(`docs/development/SPEC.md` §7.2).
 
 `asyncio.Semaphore(index_max_concurrency)` bounds how many APIs are being
 indexed (operations list + spec export) at once, so a service with a few
 hundred APIs doesn't fan out unbounded and get throttled by ARM. Throttling
-itself is already handled transparently by `ArmClient` (`docs/PRINCIPLES.md`
+itself is already handled transparently by `ArmClient` (`docs/development/PRINCIPLES.md`
 §7's retry/backoff, honouring `Retry-After`) - a 429 that eventually
 succeeds never surfaces here at all; only an exhausted retry becomes a
 per-API failure, and that failure is swallowed the same way an export
@@ -33,12 +33,11 @@ from pydantic import BaseModel
 
 from apim_mcp.auth.context import CallContext
 from apim_mcp.clients.apim import SpecFormat, fetch_spec_document
-from apim_mcp.clients.arm import ArmClient
+from apim_mcp.clients.arm import DEFAULT_API_VERSION, ArmClient
 from apim_mcp.common.errors import ToolError
 from apim_mcp.index.tokenize import tokenize
 from apim_mcp.settings import ApimServiceConfig
 
-_API_VERSION = "2024-05-01"
 _SPEC_FORMAT: SpecFormat = "openapi_json"
 
 # §7.2: "Cap schema property extraction at depth 3 and 200 properties per
@@ -53,7 +52,7 @@ FetchSpecFn = Callable[..., Awaitable[dict[str, Any] | ToolError]]
 
 
 class OperationIndexEntry(BaseModel):
-    """One indexed operation. See docs/SPEC.md §7.1."""
+    """One indexed operation. See docs/development/SPEC.md §7.1."""
 
     service: str
     api_id: str
@@ -338,7 +337,8 @@ async def _index_one_api(
     async with semaphore:
         client = ArmClient(ctx, transport=arm_transport)
         ops_result = await client.list_all(
-            f"{config.resource_id}/apis/{api_id}/operations", api_version=_API_VERSION
+            f"{config.resource_id}/apis/{api_id}/operations",
+            api_version=DEFAULT_API_VERSION,
         )
         if ops_result.error is not None:
             # The API itself couldn't be listed (e.g. exhausted retries on
@@ -395,13 +395,15 @@ async def build_service_index(
     export) just drops that one API's spec contribution, per §7.2.
 
     # OBO: the resulting index is deliberately shared across every caller
-    # (docs/PRINCIPLES.md §3's one documented exception to per-oid cache
+    # (docs/development/PRINCIPLES.md §3's one documented exception to per-oid cache
     # keys) - under OBO the mitigation is post-filtering search hits
     # against the caller's read access, not building one index per caller.
     """
     started = clock()
     client = ArmClient(ctx, transport=arm_transport)
-    apis_result = await client.list_all(f"{config.resource_id}/apis", api_version=_API_VERSION)
+    apis_result = await client.list_all(
+        f"{config.resource_id}/apis", api_version=DEFAULT_API_VERSION
+    )
     if apis_result.error is not None:
         return ServiceIndexResult(
             service=config.alias,

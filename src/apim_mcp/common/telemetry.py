@@ -1,10 +1,10 @@
 """Structured audit logging and the startup permission canary.
 
-See `docs/SPEC.md` §9 (audit event shape) and §4.2 (permission canary).
+See `docs/development/SPEC.md` §9 (audit event shape) and §4.2 (permission canary).
 Under the v1 model every downstream ARM call is made as the shared managed
 identity, so the Azure activity log never records which human asked for
 what — this module's audit event is the only record. Log arguments in
-full; never log a response body (`docs/PRINCIPLES.md` §8, §9).
+full; never log a response body (`docs/development/PRINCIPLES.md` §8, §9).
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ _canary_logger = logging.getLogger(CANARY_LOGGER_NAME)
 
 # Actions in this family return a live secret value. Any appearance in the
 # UAMI's effective permissions means someone granted more than the
-# read-only role this server needs (docs/PRINCIPLES.md §5).
+# read-only role this server needs (docs/development/PRINCIPLES.md §5).
 _SECRET_ACTION_MARKERS = (
     "listsecrets",
     "listkeys",

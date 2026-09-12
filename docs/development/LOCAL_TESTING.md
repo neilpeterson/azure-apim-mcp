@@ -3,7 +3,8 @@
 Brief, practical reference for running this repo's **test suite and dev
 loop** on a machine — `make check`, fixture recording, dependency
 management. For running the actual MCP server (locally or deployed) and
-connecting a client like VS Code, see `docs/DEPLOYMENT.md`.
+connecting a client like VS Code, see
+[`DEPLOYMENT.md`](../operations/DEPLOYMENT.md).
 
 Every `make` target runs `uv run --no-sync ...` — it never touches the
 network or re-resolves dependencies, only uses whatever is already installed
@@ -36,7 +37,7 @@ Python, not the shell. `.env` is already listed in `.gitignore`, so it can
 never be committed by accident. A real exported/`$env:` variable still wins
 over anything in `.env` (`load_dotenv()` defaults to `override=False`).
 
-See `docs/DEPLOYMENT.md` for the full environment variable reference and
+See [`DEPLOYMENT.md`](../operations/DEPLOYMENT.md) for the full environment variable reference and
 what each one does.
 
 ## Running tests

@@ -1,6 +1,6 @@
 """Server configuration, loaded from environment variables.
 
-See ``docs/SPEC.md`` §5.3 for the authoritative variable table. ``Settings``
+See ``docs/development/SPEC.md`` §5.3 for the authoritative variable table. ``Settings``
 is a Pydantic model; :func:`get_settings` wraps construction so that a
 missing or malformed variable fails fast with a message naming the exact
 environment variable at fault, per ``AGENTS.md``'s "fail fast" requirement.
@@ -105,7 +105,8 @@ class Settings(BaseSettings):
         stripped = value.strip()
         if stripped.startswith("[") or "," in stripped:
             raise ValueError(
-                "MCP_SERVER_AUDIENCE must be exactly one value, not a list — see docs/SPEC.md §4.4"
+                "MCP_SERVER_AUDIENCE must be exactly one value, not a list — "
+                "see docs/development/SPEC.md §4.4"
             )
         if any(character.isspace() for character in stripped) or "\\" in stripped:
             raise ValueError("MCP_SERVER_AUDIENCE must not contain whitespace or backslashes")
@@ -130,7 +131,7 @@ class Settings(BaseSettings):
             raise ValueError(
                 "MCP_SERVER_AUDIENCE must be an absolute http(s) MCP endpoint URL ending in "
                 "'/mcp', with no credentials, query, fragment, or trailing slash — see "
-                "docs/SPEC.md §4.3"
+                "docs/development/SPEC.md §4.3"
             )
         return stripped
 

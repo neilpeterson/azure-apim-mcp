@@ -14,9 +14,9 @@ class CallContext(BaseModel):
     depends on it staying exactly what the token said.
 
     v1 does not use `oid` for authorization (the shared managed identity
-    grants every caller the same access), but `docs/PRINCIPLES.md` §3
+    grants every caller the same access), but `docs/development/PRINCIPLES.md` §3
     requires every cache key to include it anyway, and the on-behalf-of
-    migration (`docs/SPEC.md` Appendix A) needs the full context — `oid`,
+    migration (`docs/development/SPEC.md` Appendix A) needs the full context — `oid`,
     `upn`, `roles`, and `bearer_token` — to perform its token exchange.
     """
 

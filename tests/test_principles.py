@@ -1,4 +1,4 @@
-"""AST/grep-based enforcement of the rules in docs/PRINCIPLES.md.
+"""AST/grep-based enforcement of the rules in docs/development/PRINCIPLES.md.
 
 Every test here scans ``src/`` itself, so it passes trivially against an
 (almost) empty package today. That is intentional — the point is that the
@@ -12,6 +12,10 @@ from __future__ import annotations
 import ast
 from dataclasses import dataclass
 from pathlib import Path
+
+from starlette.testclient import TestClient
+
+from _mcp_harness import REQUEST_HEADERS, authorization_header, jwks_cache, rpc, settings
 
 SRC_ROOT = Path(__file__).resolve().parent.parent / "src" / "apim_mcp"
 INFRA_ROOT = Path(__file__).resolve().parent.parent / "infra"
@@ -149,53 +153,45 @@ def test_cache_keys_include_oid() -> None:
     assert not violations, "cache not keyed by oid:\n" + "\n".join(str(v) for v in violations)
 
 
-def _iter_registered_tools() -> list[dict[str, object]]:
-    """Best-effort discovery of registered MCP tools and their annotations.
-
-    Looks for ``@mcp.tool(...)``-style decorators in src/apim_mcp/tools/ and
-    returns the keyword arguments passed to each. Returns an empty list
-    (against which the readonly assertion holds vacuously) until the tools
-    package and a real registry exist.
-    """
-    tools_dir = SRC_ROOT / "tools"
-    if not tools_dir.is_dir():
-        return []
-    tools: list[dict[str, object]] = []
-    for path in sorted(tools_dir.rglob("*.py")):
-        tree = _parse(path)
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
-                continue
-            for dec in node.decorator_list:
-                if not isinstance(dec, ast.Call):
-                    continue
-                name = _call_name(dec.func)
-                if name != "tool":
-                    continue
-                kwargs: dict[str, object] = {}
-                for kw in dec.keywords:
-                    if kw.arg is not None and isinstance(kw.value, ast.Constant):
-                        kwargs[kw.arg] = kw.value.value
-                tools.append(kwargs)
-    return tools
-
-
 def test_all_tools_are_readonly() -> None:
-    """Principle 4: every registered tool must carry the read-only hints.
+    """Principle 4: every registered tool exposes the read-only hints."""
+    from apim_mcp.index.search import IndexManager
+    from apim_mcp.server import create_mcp, wrap_with_middleware
+    from apim_mcp.tools.config import register_config_tools
+    from apim_mcp.tools.discovery import register_discovery_tools
+    from apim_mcp.tools.search import register_search_tools
+    from apim_mcp.tools.telemetry import register_telemetry_tools
 
-    Stub against an empty registry for now — passes vacuously until Group A
-    tools exist, at which point every registered tool must set these three
-    annotations.
-    """
-    violations: list[str] = []
-    for tool in _iter_registered_tools():
-        if tool.get("readOnlyHint") is not True:
-            violations.append(f"{tool}: readOnlyHint must be True")
-        if tool.get("destructiveHint") is not False:
-            violations.append(f"{tool}: destructiveHint must be False")
-        if tool.get("idempotentHint") is not True:
-            violations.append(f"{tool}: idempotentHint must be True")
-    assert not violations, "non-read-only tool annotation:\n" + "\n".join(violations)
+    test_settings = settings()
+    mcp = create_mcp(test_settings, allowed_hosts=["testserver"])
+    registry: list[str] = []
+    register_discovery_tools(mcp, registry, test_settings)
+    register_config_tools(mcp, registry, test_settings)
+    register_search_tools(mcp, registry, test_settings, IndexManager(test_settings))
+    register_telemetry_tools(mcp, registry, test_settings)
+    app = wrap_with_middleware(mcp, test_settings, jwks_cache=jwks_cache())
+
+    headers = {**REQUEST_HEADERS, "Authorization": authorization_header()}
+    with TestClient(app) as client:
+        client.post(
+            "/mcp",
+            json=rpc("initialize", {"protocolVersion": "2024-11-05", "capabilities": {}}),
+            headers=headers,
+        )
+        response = client.post(
+            "/mcp",
+            json=rpc("tools/list", {}, req_id=2),
+            headers=headers,
+        )
+
+    tools = response.json()["result"]["tools"]
+    assert {tool["name"] for tool in tools} == set(registry)
+    for tool in tools:
+        annotations = tool["annotations"]
+        assert annotations["readOnlyHint"] is True
+        assert annotations["destructiveHint"] is False
+        assert annotations["idempotentHint"] is True
+        assert annotations["openWorldHint"] is True
 
 
 def test_no_secret_actions() -> None:

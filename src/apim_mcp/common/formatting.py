@@ -1,6 +1,6 @@
 """List envelope, markdown/JSON rendering, and size-based truncation.
 
-See docs/SPEC.md §6.0 ("List response envelope", "Size ceiling").
+See docs/development/SPEC.md §6.0 ("List response envelope", "Size ceiling").
 """
 
 from __future__ import annotations
@@ -17,7 +17,6 @@ def build_list_envelope(
     *,
     total: int,
     offset: int,
-    limit: int,
 ) -> dict[str, Any]:
     """Build the standard list envelope: total/count/offset/items/has_more/next_offset."""
     count = len(items)
@@ -33,7 +32,6 @@ def build_list_envelope(
         envelope["next_offset"] = offset + count
     else:
         envelope["next_offset"] = None
-    del limit  # limit only affects how `items` was already sliced upstream
     return envelope
 
 

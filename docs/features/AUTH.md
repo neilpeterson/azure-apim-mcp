@@ -65,7 +65,7 @@ registration is optional and exists only for manual token testing.
 
 This section defines the complete authentication configuration and invariants.
 For the ordered portal and deployment procedure, see
-[`DEPLOYMENT.md`](DEPLOYMENT.md).
+[`DEPLOYMENT.md`](../operations/DEPLOYMENT.md).
 
 **Server app (`apim-mcp-server`)**
 
@@ -152,7 +152,8 @@ The UAMI is attached directly to the Container App that hosts the MCP server. Wh
 The deployment must create a UAMI, assign the built-in **API Management
 Service Reader Role** on each allowed APIM resource, attach it to the
 Container App, and set `AZURE_CLIENT_ID` to its client ID. The Bicep templates
-and ordered commands are documented in [`DEPLOYMENT.md`](DEPLOYMENT.md).
+and ordered commands are documented in
+[`DEPLOYMENT.md`](../operations/DEPLOYMENT.md).
 
 A Container App may have multiple user-assigned identities attached. Without an explicit `AZURE_CLIENT_ID`, `ManagedIdentityCredential` picks nondeterministically. Always set it.
 
@@ -193,9 +194,9 @@ APIM `*/action` operations used by `namedValues/listValue`,
 scope; their `*/read` permission would grant user-key reads despite the APIM
 role's `NotActions`, because `NotActions` is not a deny rule.
 
-Metrics are not yet implemented. Before adding them, the infrastructure must
-select a separate built-in role that grants the required Azure Monitor metric
-actions without restoring APIM user-key access.
+Metrics are routed through each APIM service's `AllMetrics` diagnostic setting
+and queried from the configured Log Analytics workspace. This preserves the
+narrow APIM role boundary; see [TELEMETRY.md](TELEMETRY.md).
 
 ### Log Analytics
 
@@ -211,8 +212,8 @@ Every `credential_for` call explicitly names its audience:
 
 | Constant | Value | Used for |
 |---|---|---|
-| `ARM_SCOPE` | `https://management.azure.com/.default` | APIM control plane, Resource Health, Metrics |
-| `LOGS_SCOPE` | `https://api.loganalytics.io/.default` | Log Analytics gateway logs |
+| `ARM_SCOPE` | `https://management.azure.com/.default` | APIM control plane and Resource Health |
+| `LOGS_SCOPE` | `https://api.loganalytics.io/.default` | Log Analytics metrics and gateway logs |
 
 ---
 

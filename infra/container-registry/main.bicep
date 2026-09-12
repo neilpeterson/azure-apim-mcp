@@ -1,4 +1,4 @@
-// Standalone Azure Container Registry deployment (../../docs/DEPLOYMENT.md).
+// Standalone Azure Container Registry deployment (../../docs/operations/DEPLOYMENT.md).
 //
 // Deployed separately from `../container-app/main.bicep` on purpose: this lets you
 // provision the registry, build/push an image into it ("hydrate"), and

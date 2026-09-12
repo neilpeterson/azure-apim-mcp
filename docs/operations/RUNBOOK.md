@@ -2,7 +2,7 @@
 
 Operational facts, environment findings, and things discovered the hard way.
 
-**This file is append-only in spirit.** When you learn something about the tenant, the APIM instances, or the deployed service that isn't in `docs/SPEC.md`, it goes here with a date. The spec describes what to build; this describes the environment you're building it in.
+**This file is append-only in spirit.** When you learn something about the tenant, the APIM instances, or the deployed service that isn't in `docs/development/SPEC.md`, it goes here with a date. The spec describes what to build; this describes the environment you're building it in.
 
 ---
 
@@ -24,7 +24,7 @@ in the request. Refer to the TSG https://aka.ms/service-management-reference-err
 **Value:** `a0656ef8-1e55-4dc7-8a13-a716b686a773`
 
 Needed for:
-- `apim-mcp-server` app registration (`docs/SPEC.md` §4.3)
+- `apim-mcp-server` app registration (`docs/development/SPEC.md` §4.3)
 - optional `apim-mcp-client` registration, only if the manual token helper is
   retained (§4.3)
 - T-20 Bicep, if it creates any app registrations — needs a parameter for this
@@ -84,7 +84,7 @@ Given the `-low` consent policy and a custom delegated scope with `type: "User"`
 
 ## OBO — blocked, revisit
 
-`docs/SPEC.md` Appendix A is the retrofit procedure. This section records why it's parked and how to check whether it's become viable.
+`docs/development/SPEC.md` Appendix A is the retrofit procedure. This section records why it's parked and how to check whether it's become viable.
 
 OBO requires delegated permissions that the `-low` consent policy almost certainly excludes:
 
@@ -131,7 +131,7 @@ az ad app delete --id $AppId
 
 ### If OBO becomes viable
 
-Follow `docs/SPEC.md` Appendix A. The §5.1 credential seam means this is a change to `credential_for()` plus the Appendix A checklist, not a rewrite.
+Follow `docs/development/SPEC.md` Appendix A. The §5.1 credential seam means this is a change to `credential_for()` plus the Appendix A checklist, not a rewrite.
 
 Find the migration surface with:
 
@@ -153,28 +153,35 @@ Every site whose behaviour or meaning changes under OBO carries that marker. T-2
 
 ### Gateway log schema (H-04)
 
-**Status:** _not yet run._ Blocking for T-19.
-
-Column names in `ApiManagementGatewayLogs` have changed across APIM versions. Pin the real list before building log tools:
+**Status:** resolved from Microsoft Learn's generated table reference dated
+2026-07-27. A live check remains recommended after deployment:
 
 ```kql
 ApiManagementGatewayLogs | getschema
 ```
 
-**Pinned columns:** _pending_
+**Pinned columns used by the tools:** `TimeGenerated`, `ApiId`, `OperationId`,
+`Method`, `ResponseCode`, `TotalTime`, `BackendTime`, `IsRequestSuccess`,
+`LastErrorReason`, `LastErrorSource`, `LastErrorMessage`, `CorrelationId`,
+`Region`, and optional `Url`.
+
+The KQL uses `column_ifexists` for every projected field. This protects older
+workspace schemas from query failure while still keeping the fixed table and
+fixed output allowlist. Request/response bodies and headers are never
+projected.
 
 ### Metric availability (H-05)
 
-**Status:** _not yet run._ Blocking for T-17.
+**Superseded 2026-09-12.** This tenant does not permit custom role creation,
+and the built-in Monitoring Reader role would restore APIM user-key reads.
+T-17 therefore routes APIM `AllMetrics` to Log Analytics and discovers recent
+`MetricName` values from the fixed `AzureMetrics` table at startup. No direct
+metric-definition permission or human preflight is required.
 
-Availability varies by SKU and platform version:
-
-```powershell
-az monitor metrics list-definitions --resource <apim-resource-id> `
-  --query "[].{name:name.value, unit:unit}" -o table
-```
-
-**Available metrics:** _pending_
+**Limitation:** diagnostic settings flatten multi-dimensional platform
+metrics. `AzureMetrics` is suitable for aggregate Capacity, Requests, and
+duration values, but not response-code/API/operation breakdowns. Use
+`ApiManagementGatewayLogs` for those dimensions.
 
 ### `format=rawxml` returns bare XML, not a JSON-wrapped `PolicyContract`
 
@@ -186,7 +193,7 @@ The ARM REST reference for `Policy - Get` / `ApiPolicy - Get` documents `.../pol
 
 ### ARM transport-level failures were not retried
 
-**Confirmed 2026-09-06.** `ArmClient`'s retry policy (`docs/SPEC.md` §5.2: "Retry on 429 and 5xx") only matched HTTP status codes. A connection-level blip (`httpx.ConnectError`, `ReadTimeout`, etc. — no HTTP response at all) skipped every retry attempt and surfaced as a bare `upstream_error` after a single failed attempt, which looked identical to a real bug: the tool failed immediately while a fresh manual request (e.g. `az rest`) made moments later succeeded, because it simply landed after the blip passed.
+**Confirmed 2026-09-06.** `ArmClient`'s retry policy (`docs/development/SPEC.md` §5.2: "Retry on 429 and 5xx") only matched HTTP status codes. A connection-level blip (`httpx.ConnectError`, `ReadTimeout`, etc. — no HTTP response at all) skipped every retry attempt and surfaced as a bare `upstream_error` after a single failed attempt, which looked identical to a real bug: the tool failed immediately while a fresh manual request (e.g. `az rest`) made moments later succeeded, because it simply landed after the blip passed.
 
 Fixed by also retrying `httpx.TransportError` with the same exponential backoff, up to the existing attempt cap (`src/apim_mcp/clients/arm.py`).
 
@@ -206,7 +213,7 @@ The Container App needs outbound HTTPS to:
 
 ### Permission canary
 
-The server logs the UAMI's effective permissions at startup and warns if any `listSecrets`-family action appears (`docs/SPEC.md` §4.2). **Treat that warning as an incident** — it means someone widened the role, and the platform-enforced redaction that the design depends on is no longer in place.
+The server logs the UAMI's effective permissions at startup and warns if any `listSecrets`-family action appears (`docs/development/SPEC.md` §4.2). **Treat that warning as an incident** — it means someone widened the role, and the platform-enforced redaction that the design depends on is no longer in place.
 
 ### JWKS failures
 
@@ -222,7 +229,7 @@ If token validation starts failing tenant-wide, check `login.microsoftonline.com
 
 The `user-entra-token` passthrough is well-supported for **prompt agents**. For **hosted agents** (code-based, running in a Foundry container) the MCP server has historically seen only the agent's managed identity, never the end user's.
 
-Under phase 1 this does not affect data scoping — every caller sees the same thing regardless. It **does** affect audit attribution in `docs/SPEC.md` §9, and it is a hard blocker for OBO.
+Under phase 1 this does not affect data scoping — every caller sees the same thing regardless. It **does** affect audit attribution in `docs/development/SPEC.md` §9, and it is a hard blocker for OBO.
 
 Test with the agent type the internal SPI platform actually hosts, and record which `oid` the MCP server receives.
 

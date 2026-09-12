@@ -83,7 +83,21 @@ configured by the server operator, such as `prod`.
 | `apim_search_apis` | Ranked lexical search across API and operation metadata |
 | `apim_refresh_index` | Rebuilds the API search index for one or all configured services |
 
-The implemented tool list evolves with `docs/TASKS.md`; clients discover the
+### Telemetry
+
+| Tool | Returns |
+|---|---|
+| `apim_get_metrics` | Aggregate APIM capacity, request, and duration metrics from `AzureMetrics` |
+| `apim_query_gateway_logs` | Bounded gateway-log details filtered by API, operation, response category, duration, or correlation ID |
+| `apim_summarize_errors` | Gateway failures grouped by API, error reason, and response code |
+
+Telemetry requires the APIM diagnostic settings deployed by this repository:
+`AllMetrics` must be routed to the configured Log Analytics workspace, and
+gateway logs must populate `ApiManagementGatewayLogs`. Metric dimensions are
+not available through the diagnostic export; use the gateway-log tools for
+API, operation, response-code, and error breakdowns.
+
+The implemented tool list evolves with `docs/development/TASKS.md`; clients discover the
 currently registered set directly from the server.
 
 ## Example requests
@@ -92,6 +106,8 @@ currently registered set directly from the server.
 - “Find operations related to inventory or stock levels.”
 - “Show the effective policy for the `orders` API.”
 - “Which hostname certificate expires first?”
+- “Show aggregate request volume and capacity for `prod` over the last hour.”
+- “Summarize the most common gateway errors on `prod` in the last 24 hours.”
 - “List the named values marked secret.” The server returns names and flags,
   never the secret contents.
 
@@ -115,10 +131,22 @@ currently registered set directly from the server.
 | OAuth sign-in fails | Confirm the server advertises the fully qualified `Mcp.Tools.Read` scope and that the official VS Code client is preauthorized |
 | Tool returns `access_denied` | The server's managed identity lacks access to that configured Azure resource; contact the operator |
 
-## Operator and contributor documentation
+## Documentation
 
-- End-to-end deployment: [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)
-- Authentication and access model: [`docs/AUTH.md`](docs/AUTH.md)
-- Local test and fixture workflow: [`docs/LOCAL_TESTING.md`](docs/LOCAL_TESTING.md)
-- Technical specification: [`docs/SPEC.md`](docs/SPEC.md)
-- Implementation status: [`docs/TASKS.md`](docs/TASKS.md)
+### Feature guides
+
+- [Authentication and access control](docs/features/AUTH.md)
+- [API and operation search](docs/features/SEARCH_INDEX.md)
+- [Metrics and gateway-log telemetry](docs/features/TELEMETRY.md)
+
+### Development
+
+- [Principles](docs/development/PRINCIPLES.md) — non-negotiable security and design rules
+- [Technical specification](docs/development/SPEC.md)
+- [Implementation tasks](docs/development/TASKS.md)
+- [Local testing and fixtures](docs/development/LOCAL_TESTING.md)
+
+### Operations
+
+- [Deployment guide](docs/operations/DEPLOYMENT.md)
+- [Runbook](docs/operations/RUNBOOK.md)

@@ -1,10 +1,10 @@
-"""Group B tools: API configuration (T-13, T-14). See docs/SPEC.md §6 Group B.
+"""Group B tools: API configuration (T-13, T-14). See docs/development/SPEC.md §6 Group B.
 
 Everything here is a straightforward ARM read, except:
 - `apim_get_policy`, which must pass its result through the T-11 redaction
   module before it ever reaches the model: policy XML is exactly the
   "content the identity is legitimately allowed to read but which may
-  embed secrets" case `docs/PRINCIPLES.md` §5 describes.
+  embed secrets" case `docs/development/PRINCIPLES.md` §5 describes.
 - `apim_get_api_spec` (T-14), whose two-call SAS-link export flow lives in
   `apim_mcp.clients.apim` rather than here - this module only owns the
   tool-level concerns (caching per `(oid, service, api_id, format)`, the
@@ -27,7 +27,7 @@ from apim_mcp.clients.apim import (
     fetch_spec_document,
     spec_summary,
 )
-from apim_mcp.clients.arm import ArmClient
+from apim_mcp.clients.arm import DEFAULT_API_VERSION, ArmClient
 from apim_mcp.common.errors import ToolError, invalid_input, not_found, upstream_error
 from apim_mcp.common.formatting import (
     ResponseFormat,
@@ -37,20 +37,12 @@ from apim_mcp.common.formatting import (
 )
 from apim_mcp.common.redaction import redact_policy_xml
 from apim_mcp.server import ToolRegistration, audited_tool
-from apim_mcp.settings import ApimServiceConfig, Settings, UnknownServiceAliasError
+from apim_mcp.settings import ApimServiceConfig, Settings
+from apim_mcp.tools._common import resolve_service
 
-_API_VERSION = "2024-05-01"
 _MAX_INLINE_OPERATIONS = 100
-_UNKNOWN_SERVICE_HINT = "one of the aliases configured in APIM_SERVICES - see apim_list_services"
 
 PolicyScope = Literal["global", "api", "operation", "product"]
-
-
-def _resolve_service(settings: Settings, alias: str) -> ApimServiceConfig | None:
-    try:
-        return settings.service(alias)
-    except UnknownServiceAliasError:
-        return None
 
 
 def _matches_filter(item: dict[str, Any], *, filter_text: str) -> bool:
@@ -64,7 +56,7 @@ def _paginate(
     items: list[dict[str, Any]], *, limit: int, offset: int, max_bytes: int, narrow_param: str
 ) -> dict[str, Any]:
     page = items[offset : offset + limit]
-    envelope = build_list_envelope(page, total=len(items), offset=offset, limit=limit)
+    envelope = build_list_envelope(page, total=len(items), offset=offset)
     return apply_truncation(envelope, max_bytes=max_bytes, narrow_param=narrow_param)
 
 
@@ -229,7 +221,7 @@ def register_config_tools(
         *,
         ctx: CallContext,
         service: str,
-        filter: str | None = None,  # noqa: A002 - matches docs/SPEC.md §6 Group B param name
+        filter: str | None = None,  # noqa: A002 - matches docs/development/SPEC.md §6 Group B param name
         include_revisions: bool = False,
         limit: int = 25,
         offset: int = 0,
@@ -247,11 +239,13 @@ def register_config_tools(
         case-insensitive substring match against name, display name, and
         path.
         """
-        config = _resolve_service(settings, service)
-        if config is None:
-            return invalid_input("service", _UNKNOWN_SERVICE_HINT)
+        config = resolve_service(settings, service)
+        if isinstance(config, ToolError):
+            return config
         client = ArmClient(ctx)
-        result = await client.list_all(f"{config.resource_id}/apis", api_version=_API_VERSION)
+        result = await client.list_all(
+            f"{config.resource_id}/apis", api_version=DEFAULT_API_VERSION
+        )
         if result.error is not None:
             return upstream_error(log_detail=f"apim_list_apis: {service}: {result.error.message}")
 
@@ -286,12 +280,12 @@ def register_config_tools(
         first 100 with `truncated: true` and a hint to use
         `apim_get_api_spec` for the complete surface.
         """
-        config = _resolve_service(settings, service)
-        if config is None:
-            return invalid_input("service", _UNKNOWN_SERVICE_HINT)
+        config = resolve_service(settings, service)
+        if isinstance(config, ToolError):
+            return config
         client = ArmClient(ctx)
         resource_id = f"{config.resource_id}/apis/{api_id}"
-        body = await client.get(resource_id, api_version=_API_VERSION)
+        body = await client.get(resource_id, api_version=DEFAULT_API_VERSION)
         if isinstance(body, ToolError):
             if body.kind == "not_found":
                 return not_found("api", api_id, service)
@@ -303,7 +297,9 @@ def register_config_tools(
         if not include_operations:
             return api
 
-        ops_result = await client.list_all(f"{resource_id}/operations", api_version=_API_VERSION)
+        ops_result = await client.list_all(
+            f"{resource_id}/operations", api_version=DEFAULT_API_VERSION
+        )
         if ops_result.error is not None:
             return upstream_error(
                 log_detail=f"apim_get_api: {service}/{api_id}: {ops_result.error.message}"
@@ -333,7 +329,7 @@ def register_config_tools(
         response_format: ResponseFormat = "markdown",
     ) -> dict[str, Any] | ToolError:
         """Policy XML at the given scope (`global`, `api`, `operation`, or
-        `product`), redacted per docs/SPEC.md §8.2 before being returned:
+        `product`), redacted per docs/development/SPEC.md §8.2 before being returned:
         sensitive `<set-header>` values and high-entropy substrings (base64,
         hex, JWT, SAS parameters) are replaced with `[REDACTED:reason]`
         markers, so a redacted policy is visibly incomplete rather than
@@ -341,9 +337,9 @@ def register_config_tools(
         intact and unexpanded - the reference name is useful context and is
         not itself a secret.
         """
-        config = _resolve_service(settings, service)
-        if config is None:
-            return invalid_input("service", _UNKNOWN_SERVICE_HINT)
+        config = resolve_service(settings, service)
+        if isinstance(config, ToolError):
+            return config
         resource_id_or_error = _policy_resource_id(
             config, scope=scope, api_id=api_id, operation_id=operation_id, product_id=product_id
         )
@@ -353,7 +349,7 @@ def register_config_tools(
 
         client = ArmClient(ctx)
         raw = await client.get_text(
-            resource_id, api_version=_API_VERSION, params={"format": "rawxml"}
+            resource_id, api_version=DEFAULT_API_VERSION, params={"format": "rawxml"}
         )
         if isinstance(raw, ToolError):
             if raw.kind == "not_found":
@@ -379,11 +375,13 @@ def register_config_tools(
         """List products on one APIM instance: `id`, `name`, `displayName`,
         `description`, `subscriptionRequired`, `approvalRequired`,
         `subscriptionsLimit`, `state`."""
-        config = _resolve_service(settings, service)
-        if config is None:
-            return invalid_input("service", _UNKNOWN_SERVICE_HINT)
+        config = resolve_service(settings, service)
+        if isinstance(config, ToolError):
+            return config
         client = ArmClient(ctx)
-        result = await client.list_all(f"{config.resource_id}/products", api_version=_API_VERSION)
+        result = await client.list_all(
+            f"{config.resource_id}/products", api_version=DEFAULT_API_VERSION
+        )
         if result.error is not None:
             return upstream_error(
                 log_detail=f"apim_list_products: {service}: {result.error.message}"
@@ -410,11 +408,13 @@ def register_config_tools(
         `protocol`, `title`, `description`, `tls` settings. Never returns
         `credentials` - use the Azure Portal to inspect backend
         authentication configuration."""
-        config = _resolve_service(settings, service)
-        if config is None:
-            return invalid_input("service", _UNKNOWN_SERVICE_HINT)
+        config = resolve_service(settings, service)
+        if isinstance(config, ToolError):
+            return config
         client = ArmClient(ctx)
-        result = await client.list_all(f"{config.resource_id}/backends", api_version=_API_VERSION)
+        result = await client.list_all(
+            f"{config.resource_id}/backends", api_version=DEFAULT_API_VERSION
+        )
         if result.error is not None:
             return upstream_error(
                 log_detail=f"apim_list_backends: {service}: {result.error.message}"
@@ -443,12 +443,12 @@ def register_config_tools(
         circumstances - this tool cannot fetch them (the secret-listing
         action is never called) and would not return them even if a source
         payload somehow carried one."""
-        config = _resolve_service(settings, service)
-        if config is None:
-            return invalid_input("service", _UNKNOWN_SERVICE_HINT)
+        config = resolve_service(settings, service)
+        if isinstance(config, ToolError):
+            return config
         client = ArmClient(ctx)
         result = await client.list_all(
-            f"{config.resource_id}/namedValues", api_version=_API_VERSION
+            f"{config.resource_id}/namedValues", api_version=DEFAULT_API_VERSION
         )
         if result.error is not None:
             return upstream_error(
@@ -477,12 +477,12 @@ def register_config_tools(
         `primaryKey` or `secondaryKey`, under any circumstances - this tool
         pins an `api-version` where the read operation does not include
         keys inline, and would strip them even if it did."""
-        config = _resolve_service(settings, service)
-        if config is None:
-            return invalid_input("service", _UNKNOWN_SERVICE_HINT)
+        config = resolve_service(settings, service)
+        if isinstance(config, ToolError):
+            return config
         client = ArmClient(ctx)
         result = await client.list_all(
-            f"{config.resource_id}/subscriptions", api_version=_API_VERSION
+            f"{config.resource_id}/subscriptions", api_version=DEFAULT_API_VERSION
         )
         if result.error is not None:
             return upstream_error(
@@ -503,7 +503,7 @@ def register_config_tools(
         ctx: CallContext,
         service: str,
         api_id: str,
-        format: SpecFormat = "openapi_json",  # noqa: A002 - matches docs/SPEC.md §6 param name
+        format: SpecFormat = "openapi_json",  # noqa: A002 - matches docs/development/SPEC.md §6 param name
         mode: SpecMode = "summary",
         response_format: ResponseFormat = "markdown",
     ) -> dict[str, Any] | ToolError:
@@ -524,9 +524,9 @@ def register_config_tools(
         the export link, which is only valid for five minutes) is cached
         per caller for `INDEX_TTL_SECONDS`.
         """
-        config = _resolve_service(settings, service)
-        if config is None:
-            return invalid_input("service", _UNKNOWN_SERVICE_HINT)
+        config = resolve_service(settings, service)
+        if isinstance(config, ToolError):
+            return config
 
         cache_key = SpecCacheKey(oid=ctx.oid, service=service, api_id=api_id, format=format)
         document = spec_cache.get(cache_key)

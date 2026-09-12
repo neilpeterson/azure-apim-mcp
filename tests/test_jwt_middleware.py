@@ -1,9 +1,11 @@
-"""Tests for src/apim_mcp/auth/middleware.py (T-08). See docs/SPEC.md §4.4."""
+"""Tests for middleware (T-08). See docs/development/SPEC.md §4.4."""
 
 from __future__ import annotations
 
+import asyncio
+import inspect
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Coroutine
 from typing import Any
 
 import httpx
@@ -19,6 +21,7 @@ from apim_mcp.auth.middleware import (
     OAUTH_PROTECTED_RESOURCE_PATH,
     OPENID_CONFIGURATION_PATH,
     READYZ_PATH,
+    AuthorizationServerMetadataCache,
     JWKSCache,
     TokenValidationMiddleware,
     entra_issuer,
@@ -266,3 +269,177 @@ def test_aud_is_not_a_list() -> None:
 
     with pytest.raises(Exception, match="MCP_SERVER_AUDIENCE"):
         _settings(mcp_server_audience="api://a,api://b")
+
+
+# ---------------------------------------------------------------------------
+# AuthorizationServerMetadataCache - the §10.2.1 VS Code discovery-bug mirror.
+#
+# The mirror is fetch-once by design: `get_document()` fetches lazily on the
+# first call, and once a document is cached it never contacts Entra again.
+# These tests pin that invariant - including under a cold-start race - so the
+# class is not "helpfully" given a refresh clock that could never fire.
+# ---------------------------------------------------------------------------
+
+ENTRA_DISCOVERY_URI = (
+    f"https://login.microsoftonline.com/{TENANT_ID}/v2.0/.well-known/openid-configuration"
+)
+
+# Shaped like Entra's real document: every endpoint points at
+# `login.microsoftonline.com`, and there is no `registration_endpoint`.
+ENTRA_DISCOVERY_DOCUMENT: dict[str, Any] = {
+    "issuer": ISSUER,
+    "authorization_endpoint": (
+        f"https://login.microsoftonline.com/{TENANT_ID}/oauth2/v2.0/authorize"
+    ),
+    "token_endpoint": f"https://login.microsoftonline.com/{TENANT_ID}/oauth2/v2.0/token",
+    "jwks_uri": f"https://login.microsoftonline.com/{TENANT_ID}/discovery/v2.0/keys",
+    "response_types_supported": ["code", "id_token", "token id_token"],
+}
+
+
+def _metadata_cache(
+    handler: Callable[[httpx.Request], Coroutine[None, None, httpx.Response]],
+) -> AuthorizationServerMetadataCache:
+    return AuthorizationServerMetadataCache(TENANT_ID, transport=httpx.MockTransport(handler))
+
+
+async def test_metadata_mirror_does_not_fetch_until_asked() -> None:
+    """Lazy first fetch: constructing the cache must not contact Entra.
+    `build_server()` runs at startup, long before any client has probed a
+    well-known path, and startup must not depend on Entra being reachable."""
+    calls = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(200, json=ENTRA_DISCOVERY_DOCUMENT)
+
+    cache = _metadata_cache(handler)
+    assert calls == 0
+
+    assert await cache.get_document() == ENTRA_DISCOVERY_DOCUMENT
+    assert calls == 1
+
+
+async def test_metadata_mirror_requests_entra_tenant_discovery_uri() -> None:
+    """§10.2.1: the mirror serves Entra's own tenant-scoped v2.0 document.
+    Fetching anything else - or fabricating one - is the rejected OAuth-proxy
+    pattern that §4.3's confused-deputy warning rules out."""
+    seen: list[str] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(str(request.url))
+        return httpx.Response(200, json=ENTRA_DISCOVERY_DOCUMENT)
+
+    await _metadata_cache(handler).get_document()
+
+    assert seen == [ENTRA_DISCOVERY_URI]
+
+
+async def test_metadata_mirror_returns_entra_document_verbatim() -> None:
+    """Never fabricated, never rewritten: the mirrored sign-in endpoints still
+    point straight at `login.microsoftonline.com`, and no `registration_endpoint`
+    is invented, so the browser redirect goes to Entra and not through us."""
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=ENTRA_DISCOVERY_DOCUMENT)
+
+    document = await _metadata_cache(handler).get_document()
+
+    assert document is not None
+    assert document == ENTRA_DISCOVERY_DOCUMENT
+    assert "registration_endpoint" not in document
+    assert document["authorization_endpoint"].startswith("https://login.microsoftonline.com/")
+    assert document["token_endpoint"].startswith("https://login.microsoftonline.com/")
+
+
+async def test_metadata_mirror_fetches_once_then_serves_from_cache() -> None:
+    """§10.2.1's contract is a document "fetched once ... and cached": after a
+    successful fetch the cache must never contact Entra again. That is exactly
+    why it carries no refresh clock - there is no path on which one could run."""
+    calls = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(200, json={**ENTRA_DISCOVERY_DOCUMENT, "issuer": f"fetch-{calls}"})
+
+    cache = _metadata_cache(handler)
+    documents = [await cache.get_document() for _ in range(5)]
+
+    assert calls == 1
+    assert documents[0] is not None
+    assert documents[0]["issuer"] == "fetch-1"
+    assert all(document == documents[0] for document in documents)
+
+
+async def test_metadata_mirror_returns_none_on_http_error_status() -> None:
+    """§8 / T-08.2: a fetch failure is a result, not an exception. The route
+    turns `None` into a 503 rather than letting the request crash."""
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500)
+
+    assert await _metadata_cache(handler).get_document() is None
+
+
+async def test_metadata_mirror_returns_none_on_transport_error() -> None:
+    """A connection-level failure (DNS, TLS, timeout) must not escape either."""
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("entra unreachable", request=request)
+
+    assert await _metadata_cache(handler).get_document() is None
+
+
+async def test_metadata_mirror_retries_after_a_failed_fetch() -> None:
+    """A failure must never be cached. With no refresh path, a remembered
+    failure would 503 the mirror for the whole life of the process, so the
+    next request has to be able to heal it once Entra is reachable again."""
+    calls = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return httpx.Response(503)
+        return httpx.Response(200, json=ENTRA_DISCOVERY_DOCUMENT)
+
+    cache = _metadata_cache(handler)
+
+    assert await cache.get_document() is None
+    assert await cache.get_document() == ENTRA_DISCOVERY_DOCUMENT
+    assert calls == 2
+
+
+async def test_metadata_mirror_fetches_once_under_concurrent_first_calls() -> None:
+    """Cold start is the one moment many requests can race on an empty cache,
+    and it is when every VS Code client reconnects at once. Fetch-once has to
+    hold there too: one upstream call, and the same document for everybody."""
+    calls = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        # A real suspension point, so every gathered caller is already inside
+        # the cache before the first fetch completes.
+        await asyncio.sleep(0.01)
+        return httpx.Response(200, json=ENTRA_DISCOVERY_DOCUMENT)
+
+    cache = _metadata_cache(handler)
+    documents = await asyncio.gather(*(cache.get_document() for _ in range(10)))
+
+    assert calls == 1
+    assert documents == [ENTRA_DISCOVERY_DOCUMENT] * 10
+
+
+def test_metadata_mirror_exposes_no_refresh_knobs() -> None:
+    """The mirror is fetch-once (§10.2.1), so it takes no refresh clock or
+    interval. `JWKSCache` keeps both because its rate limit does real work -
+    it genuinely re-enters the fetch on an unknown `kid`. Here the fetch is
+    guarded on "no document cached yet", so a refresh interval could never
+    fire on a cached document: it would be inert machinery that only looks
+    like a safety control."""
+    parameters = inspect.signature(AuthorizationServerMetadataCache).parameters
+
+    assert set(parameters) == {"tenant_id", "transport"}

@@ -1,4 +1,4 @@
-"""Tests for ArmClient (T-06). See docs/SPEC.md §5.2."""
+"""Tests for ArmClient (T-06). See docs/development/SPEC.md §5.2."""
 
 from __future__ import annotations
 
@@ -61,18 +61,23 @@ async def test_get_returns_parsed_body() -> None:
     assert result == {"name": "apim-fixture"}
 
 
-async def test_get_returns_upstream_error_for_non_json_200() -> None:
+async def test_get_returns_upstream_error_for_non_json_200(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     """A 200 with a body that isn't valid JSON must become a `ToolError`,
     not raise `json.JSONDecodeError` out of the handler
-    (docs/PRINCIPLES.md §8)."""
+    (docs/development/PRINCIPLES.md §8)."""
 
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, text="<not-json/>")
+        return httpx.Response(200, text="<secret-resource-configuration/>")
 
+    caplog.set_level("WARNING", logger="apim_mcp.common.errors")
     client = _client(handler)
     result = await client.get(RESOURCE_ID)
     assert isinstance(result, ToolError)
     assert result.kind == "upstream_error"
+    assert "non-JSON 200 response" in caplog.text
+    assert "secret-resource-configuration" not in caplog.text
 
 
 async def test_get_text_returns_raw_body_even_when_not_json() -> None:
@@ -169,7 +174,9 @@ async def test_403_returns_access_denied() -> None:
     assert result.kind == "access_denied"
 
 
-async def test_5xx_becomes_upstream_error_after_retries_exhausted() -> None:
+async def test_5xx_becomes_upstream_error_after_retries_exhausted(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     call_count = 0
 
     async def fake_sleep(seconds: float) -> None:
@@ -178,14 +185,17 @@ async def test_5xx_becomes_upstream_error_after_retries_exhausted() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         nonlocal call_count
         call_count += 1
-        return httpx.Response(503, json={"error": "unavailable"})
+        return httpx.Response(503, json={"error": "secret-upstream-detail"})
 
+    caplog.set_level("WARNING", logger="apim_mcp.common.errors")
     client = _client(handler, sleep=fake_sleep)
     result = await client.get(RESOURCE_ID)
 
     assert isinstance(result, ToolError)
     assert result.kind == "upstream_error"
     assert call_count == arm_module._MAX_ATTEMPTS
+    assert "ARM returned HTTP 503" in caplog.text
+    assert "secret-upstream-detail" not in caplog.text
 
 
 async def test_transport_error_is_retried_and_recovers() -> None:
