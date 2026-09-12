@@ -26,7 +26,7 @@ from apim_mcp.settings import ApimServiceConfig, Settings
 from apim_mcp.tools.discovery import register_discovery_tools
 
 TENANT_ID = "11111111-1111-1111-1111-111111111111"
-AUDIENCE = "api://apim-mcp"
+AUDIENCE = "http://localhost:8000/mcp"
 REQUIRED_ROLE = "Apim.Read"
 ISSUER = f"https://login.microsoftonline.com/{TENANT_ID}/v2.0"
 KID = "discovery-test-kid"

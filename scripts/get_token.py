@@ -1,8 +1,9 @@
-"""Acquire a token for local MCP server development.
+"""Acquire a token for optional manual MCP protocol testing.
 
 Authenticates via MSAL (browser-based, bypasses the macOS platform broker)
-and writes the token into .vscode/mcp.json so VS Code can connect without
-its own OAuth flow. Tokens expire after ~1 hour; re-run when they do.
+and writes the token into .vscode/mcp.json. Normal local and hosted VS Code
+connections use automatic OAuth discovery and do not need this helper.
+Tokens expire after approximately one hour; re-run when they do.
 
 Usage:
     make token

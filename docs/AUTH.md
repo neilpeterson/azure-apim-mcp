@@ -13,14 +13,28 @@ There are two independent authorization decisions for every request:
 
 This is a deliberate v1 tradeoff. The managed identity's RBAC scope is the security boundary for content. See [The v1 tradeoff](#the-v1-tradeoff) for what changes in a future On-Behalf-Of upgrade.
 
+**Deployed (Container Apps):**
 ```
 User (VS Code / Foundry agent)
         │
         │  Entra JWT (bearer token)
         ▼
-  apim_mcp server  ──── validates token, checks Apim.Read role
+  apim_mcp server (Container App)  ──── validates token, checks Apim.Read role
         │
-        │  User-assigned managed identity (UAMI)
+        │  User-assigned managed identity (UAMI) attached to Container App
+        ▼
+  Azure Resource Manager / Azure Monitor / Log Analytics
+```
+
+**Local development:**
+```
+User (VS Code / Foundry agent)
+        │
+        │  Entra JWT (bearer token)
+        ▼
+  apim_mcp server (local)
+        │
+        │  AzureCliCredential  (your az login session)
         ▼
   Azure Resource Manager / Azure Monitor / Log Analytics
 ```
@@ -44,7 +58,14 @@ On success, the validated claims (`oid`, `preferred_username`, `roles`) are atta
 
 ### Entra app registration setup
 
-Two app registrations are required.
+Only the server app registration is required for normal VS Code use. VS Code
+uses Microsoft's existing public client and acquires tokens automatically for
+both local and deployed MCP endpoints. The repository's separate public-client
+registration is optional and exists only for manual token testing.
+
+This section defines the complete authentication configuration and invariants.
+For the ordered portal and deployment procedure, see
+[`DEPLOYMENT.md`](DEPLOYMENT.md).
 
 **Server app (`apim-mcp-server`)**
 
@@ -54,32 +75,58 @@ Two app registrations are required.
 - Define an app role: `Apim.Read`, allowed member types `Users/Groups`.
 - On the enterprise application, set **Assignment required = Yes**.
 
-**Client app (`apim-mcp-client`)**
+**OAuth clients**
 
-- On `apim-mcp-server` → Expose an API → Authorized client applications, add `apim-mcp-client`'s client ID with the `Mcp.Tools.Read` scope. This suppresses the per-user consent prompt for known clients.
-- On `apim-mcp-client` → Authentication, add redirect URIs:
+- On `apim-mcp-server` → Expose an API → Authorized client applications,
+  preauthorize the official Visual Studio Code client ID
+  `aebc6443-996d-45c2-90f0-388ff96faa56` for `Mcp.Tools.Read`.
+- This preauthorization lets VS Code request the delegated scope without a
+  per-user consent prompt. Users still require an `Apim.Read` app-role
+  assignment on the server enterprise application.
+- If the optional project MSAL client used by `make token` is retained, also
+  preauthorize its client ID `4c5ab830-b291-4308-8ae2-70d3f978e4a0` for
+  `Mcp.Tools.Read`.
+- On that optional `apim-mcp-client` registration, add the delegated
+  `Mcp.Tools.Read` API permission and these redirect URIs:
   - `http://localhost` (any-port wildcard for MSAL's loopback flow)
   - `http://127.0.0.1:33418`
   - `https://vscode.dev/redirect`
 
+`make token` is not part of the VS Code connection flow. It remains available
+for manual protocol testing or diagnosing a client independently of VS Code.
+
 ### Environment variables
 
-| Variable | Value |
-|---|---|
-| `AZURE_TENANT_ID` | Your Entra tenant ID |
-| `MCP_SERVER_AUDIENCE` | The Application ID URI URL (e.g. `https://<app>.<region>.azurecontainerapps.io/mcp`) |
-| `MCP_SERVER_APP_ID` | The server app's Application (client) ID — a GUID |
-| `MCP_REQUIRED_ROLE` | `Apim.Read` (default) |
+| Variable | Deployed | Local dev | Notes |
+|---|---|---|---|
+| `AZURE_TENANT_ID` | yes | yes | Your Entra tenant ID |
+| `MCP_SERVER_AUDIENCE` | yes | yes | Application ID URI URL (e.g. `https://<app>.<region>.azurecontainerapps.io/mcp`; use `http://localhost:8000/mcp` locally) |
+| `MCP_SERVER_APP_ID` | yes | yes | Server app's Application (client) ID — a GUID |
+| `MCP_REQUIRED_ROLE` | yes | yes | `Apim.Read` (default) |
+| `AZURE_CLIENT_ID` | yes | placeholder | UAMI client ID in deployed environments; set to all-zeros locally |
+| `APIM_MCP_LOCAL_DEV_CREDENTIAL` | **never** | `1` | Swaps managed identity for `az login` credential. Must not be set in Container Apps. |
 
 ### OAuth discovery endpoints
 
 The server exposes RFC 9728 protected-resource metadata so MCP clients can discover the Entra tenant automatically:
 
-- `GET /.well-known/oauth-protected-resource` — returns the resource URI, authorization server, supported scopes, and bearer method.
+- `GET /.well-known/oauth-protected-resource` — returns the resource URI,
+  authorization server, supported scopes, and bearer method.
 - `GET /.well-known/oauth-protected-resource/mcp` — same document at the path-suffixed route.
-- `GET /.well-known/oauth-authorization-server` and `GET /.well-known/openid-configuration` — mirrors Entra's real OIDC discovery document verbatim (workaround for a VS Code client bug that drops the path component of the issuer URL).
+- `GET /.well-known/oauth-authorization-server` and `GET /.well-known/openid-configuration` — mirrors Entra's real OIDC discovery document verbatim for compatibility with VS Code clients that drop the path component of the issuer URL.
+
+`scopes_supported` advertises the fully-qualified delegated scope derived from
+`MCP_SERVER_AUDIENCE`, for example
+`https://host.example/mcp/Mcp.Tools.Read` or
+`http://localhost:8000/mcp/Mcp.Tools.Read`. It must never advertise only
+`Mcp.Tools.Read`; Entra interprets that short scope as belonging to Microsoft
+Graph rather than this MCP resource.
 
 All discovery routes are unauthenticated. Every `401` response includes a `WWW-Authenticate` header with a `resource_metadata` hint pointing at the discovery document.
+
+With this discovery configuration and the official VS Code client
+preauthorized, both local and deployed servers use the same automatic sign-in
+flow. No static bearer header or `make token` step is required.
 
 ---
 
@@ -87,37 +134,68 @@ All discovery routes are unauthenticated. Every `401` response includes a `WWW-A
 
 ### How it works
 
-The server authenticates to Azure using a **user-assigned managed identity (UAMI)**. All downstream calls to Azure Resource Manager, Azure Monitor, and Log Analytics go through the `credential_for(ctx, scope)` function in `src/apim_mcp/auth/credentials.py`. No module constructs credentials directly.
+All downstream calls to Azure Resource Manager, Azure Monitor, and Log Analytics go through the `credential_for(ctx, scope)` function in `src/apim_mcp/auth/credentials.py`. No other module constructs credentials directly — this single function is what both the deployed and local development paths go through, and it is the only point that changes in a future OBO upgrade.
 
-Set `AZURE_CLIENT_ID` to the UAMI's client ID. A Container App may have multiple identities attached; the explicit client ID prevents nondeterministic resolution.
+The credential used depends on the environment:
 
-### Custom RBAC role
+| Environment | Credential | Set by |
+|---|---|---|
+| Container Apps (deployed) | `ManagedIdentityCredential` bound to the UAMI | `AZURE_CLIENT_ID` env var |
+| Local development | `AzureCliCredential` (`az login` session) | `APIM_MCP_LOCAL_DEV_CREDENTIAL=1` in `.env` |
 
-The UAMI is assigned a custom role — **APIM Knowledge Reader** — at the narrowest applicable scope (individual APIM resource ID if possible, resource group if necessary, never subscription root).
+`APIM_MCP_LOCAL_DEV_CREDENTIAL=1` is an opt-in dev flag. It is never set in Container Apps environments. `ManagedIdentityCredential` cannot acquire tokens outside of Azure-hosted compute, so this flag exists solely to allow `make run` to hit real APIM from a developer laptop.
 
-```json
-{
-  "Name": "APIM Knowledge Reader",
-  "IsCustom": true,
-  "Description": "Read-only access to API Management configuration and telemetry. Cannot retrieve secrets.",
-  "Actions": [
-    "Microsoft.ApiManagement/service/read",
-    "Microsoft.ApiManagement/service/*/read",
-    "Microsoft.ResourceHealth/availabilityStatuses/read",
-    "Microsoft.Insights/metrics/read",
-    "Microsoft.Insights/metricDefinitions/read",
-    "Microsoft.Resources/subscriptions/resourceGroups/read"
-  ],
-  "NotActions": [],
-  "DataActions": [],
-  "NotDataActions": [],
-  "AssignableScopes": [
-    "/subscriptions/{sub}/resourceGroups/{rg}"
-  ]
-}
+### Deployed: user-assigned managed identity (UAMI)
+
+The UAMI is attached directly to the Container App that hosts the MCP server. When the server process calls `credential_for()`, `ManagedIdentityCredential` talks to the Container Apps metadata endpoint to obtain a token for that identity — no secrets or credentials are stored anywhere.
+
+The deployment must create a UAMI, assign the built-in **API Management
+Service Reader Role** on each allowed APIM resource, attach it to the
+Container App, and set `AZURE_CLIENT_ID` to its client ID. The Bicep templates
+and ordered commands are documented in [`DEPLOYMENT.md`](DEPLOYMENT.md).
+
+A Container App may have multiple user-assigned identities attached. Without an explicit `AZURE_CLIENT_ID`, `ManagedIdentityCredential` picks nondeterministically. Always set it.
+
+```
+Container App (apim-mcp)
+  └── attached identity: id-apim-mcp (UAMI)
+        └── RBAC: API Management Service Reader Role → APIM resource
 ```
 
-**Why this role cannot retrieve secrets by construction:** every secret-retrieval action in the APIM resource provider (`namedValues/listValue/action`, `subscriptions/listSecrets/action`, `gateways/listKeys/action`, `tenant/listSecrets/action`, `users/token/action`) is a POST `*/action`, not a `*/read`. This role grants only `*/read`. No amount of code change can cause the server to return secrets — Azure RBAC is the enforcement layer, not application-level filtering.
+### Local development: az login credential
+
+When `APIM_MCP_LOCAL_DEV_CREDENTIAL=1` is set, `credential_for()` returns `AzureCliCredential()`, which uses the token from your active `az login` session. Your personal account needs API Management Service Reader access on the APIM resource for the currently implemented tools.
+
+**What you need in `.env` for local development:**
+
+```
+APIM_MCP_LOCAL_DEV_CREDENTIAL=1
+AZURE_CLIENT_ID=00000000-0000-0000-0000-000000000000   # placeholder, not used in local mode
+```
+
+The `AZURE_CLIENT_ID` placeholder is still required by the settings validator but is ignored when the dev flag is set.
+
+> **Important:** do not set `APIM_MCP_LOCAL_DEV_CREDENTIAL` in any deployed environment. It bypasses the managed identity entirely and would cause the server to try to use a developer's cached `az` token, which will not be present on Container Apps and will fail.
+
+### Built-in RBAC role
+
+The UAMI receives this built-in role on each individual APIM resource:
+
+| Role | ID | Purpose |
+|---|---|---|
+| **API Management Service Reader Role** | `71522526-b88f-4d52-b57f-d31fc3546d0d` | APIM configuration reads, Resource Health, and permission-canary access |
+
+**Why this role cannot retrieve APIM secrets by construction:** it explicitly excludes
+`Microsoft.ApiManagement/service/users/keys/read`, and it does not grant the
+APIM `*/action` operations used by `namedValues/listValue`,
+`subscriptions/listSecrets`, `gateways/listKeys`, `tenant/listSecrets`, or
+`users/token`. Do not add **Reader** or **Monitoring Reader** at the APIM
+scope; their `*/read` permission would grant user-key reads despite the APIM
+role's `NotActions`, because `NotActions` is not a deny rule.
+
+Metrics are not yet implemented. Before adding them, the infrastructure must
+select a separate built-in role that grants the required Azure Monitor metric
+actions without restoring APIM user-key access.
 
 ### Log Analytics
 
@@ -155,7 +233,9 @@ Remove the user from the Entra security group (or remove their individual assign
 Two steps are required:
 
 1. Add the instance to the `APIM_SERVICES` environment variable (JSON array entry with `alias`, `resourceId`, and optionally `logAnalyticsWorkspaceId`).
-2. Assign the UAMI the **APIM Knowledge Reader** role on the new APIM resource or its resource group.
+2. Assign the UAMI the **API Management Service Reader Role** on the new APIM
+   resource itself and, when configured, **Log Analytics Reader** on its
+   workspace.
 
 `APIM_SERVICES` is the authoritative allowlist. The server will not query an APIM instance that is not listed there, regardless of what the UAMI's RBAC would permit.
 

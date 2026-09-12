@@ -28,7 +28,7 @@ That migration is a one-function change *only if* the seam holds. Your job is to
 
 ## RBAC
 
-The custom role grants `Microsoft.ApiManagement/service/*/read`. Every secret-retrieval operation in that resource provider is a POST `*/action`, so the wildcard **cannot** reach them by construction. This is deliberate: the platform is the redaction layer.
+The built-in **API Management Service Reader Role** grants `Microsoft.ApiManagement/service/*/read`, explicitly excludes `Microsoft.ApiManagement/service/users/keys/read`, and does not grant APIM secret-retrieval `*/action` operations. It is assigned only at the APIM resource scope. This is deliberate: the platform is the redaction layer. Any supplemental role needed for future metrics must preserve these invariants and must not be an unrelated service role chosen only for incidental permissions.
 
 Never write code that fetches a secret and strips it afterwards. If a value needs redacting, the identity should not have been able to read it.
 

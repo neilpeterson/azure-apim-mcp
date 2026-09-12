@@ -118,14 +118,21 @@ def test_healthz_and_readyz_available_without_auth() -> None:
         assert client.get("/readyz").status_code == 200
 
 
-def test_oauth_protected_resource_metadata() -> None:
+@pytest.mark.parametrize(
+    "audience",
+    [
+        "http://localhost:8000/mcp",
+        "https://host.example/mcp",
+    ],
+)
+def test_oauth_protected_resource_metadata(audience: str) -> None:
     """§10.2: VS Code discovers the Entra tenant to authenticate against
     from this endpoint, without a hand-configured header. Must be reachable
     without a token, must be served at both the root and RFC 9728
     path-suffixed route, must name `MCP_SERVER_AUDIENCE` exactly as the
-    resource (no re-derivation from the request), and must advertise this
-    server's delegated scope."""
-    settings = _settings()
+    resource (no re-derivation from the request), and must advertise the
+    fully-qualified delegated scope derived from that audience."""
+    settings = _settings().model_copy(update={"mcp_server_audience": audience})
     mcp = create_mcp(settings, allowed_hosts=["testserver"])
     app = wrap_with_middleware(mcp, settings)
     with TestClient(app) as client:
@@ -133,11 +140,11 @@ def test_oauth_protected_resource_metadata() -> None:
             response = client.get(path)
             assert response.status_code == 200, path
             body = response.json()
-            assert body["resource"] == AUDIENCE
+            assert body["resource"] == audience
             assert body["authorization_servers"] == [
                 f"https://login.microsoftonline.com/{TENANT_ID}/v2.0"
             ]
-            assert body["scopes_supported"] == [MCP_DELEGATED_SCOPE]
+            assert body["scopes_supported"] == [f"{audience}/{MCP_DELEGATED_SCOPE}"]
             assert body["bearer_methods_supported"] == ["header"]
 
 

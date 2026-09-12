@@ -7,9 +7,10 @@ Read-only MCP server that answers questions about Azure API Management. Python 3
 | Need | Read |
 |---|---|
 | Non-negotiable rules, with rationale | `docs/PRINCIPLES.md` — **read before writing any code** |
-| What to build, in order | `TASKS.md` |
+| What to build, in order | `docs/TASKS.md` |
 | Full technical spec | `docs/SPEC.md` |
 | Tenant quirks, environment findings | `docs/RUNBOOK.md` |
+| Deployment, Bicep/infra layout | `docs/DEPLOYMENT.md` |
 
 ## The loop
 
@@ -21,13 +22,23 @@ make check      # ruff + mypy --strict + pytest
 
 If `make check` fails, you are not done. Fix it and re-run. Do not report a task complete with a failing gate, and do not disable a check to make it pass.
 
+## Before opening a pull request
+
+Review every tracked modification and every untracked file intended for the
+pull request. Scan for credentials, access tokens, private keys, certificates,
+connection strings, SAS URLs, passwords, secrets, and environment-specific
+values that do not belong in source control. Verify that environment
+`.bicepparam` files remain ignored and that only sanitized parameter examples
+with placeholders are committed. Do not create the pull request until the
+candidate diff is clean.
+
 ## Working agreement
 
-- **One task at a time**, from `TASKS.md`, in order, unless the task is marked `[PARALLEL-SAFE]`.
+- **One task at a time**, from `docs/TASKS.md`, in order, unless the task is marked `[PARALLEL-SAFE]`.
 - **Read the referenced spec section** (`docs/SPEC.md` §N) before starting. The task list is a summary, not the requirement.
 - **Tests before implementation.** Every task lists named tests in its acceptance criteria. Write them failing, then make them pass.
 - **Never call live Azure.** Tests run against recorded fixtures in `tests/fixtures/`. If you need a fixture that does not exist, add a recorder entry in `scripts/record_fixtures.py` and stop — a human runs it.
-- **Update `TASKS.md`** — tick the checkboxes as you complete them. That file is the shared state between sessions.
+- **Update `docs/TASKS.md`** — tick the checkboxes as you complete them. That file is the shared state between sessions.
 
 ## The ten principles
 
@@ -64,4 +75,4 @@ make inspect    # MCP Inspector against local server
 
 ## When you are stuck
 
-Do not guess at Azure API shapes. If a response schema is unclear, say so and stop rather than inventing field names. `docs/SPEC.md` §14 lists the open questions that only a human can resolve — if you hit one, note it in `TASKS.md` and move to the next task.
+Do not guess at Azure API shapes. If a response schema is unclear, say so and stop rather than inventing field names. `docs/SPEC.md` §14 lists the open questions that only a human can resolve — if you hit one, note it in `docs/TASKS.md` and move to the next task.

@@ -8,3 +8,8 @@ __pycache__/
 .vscode/mcp.json
 .azure/
 dist/
+
+# Environment-specific Azure deployment parameters may contain tenant and
+# resource identifiers. Commit only the sanitized examples.
+infra/**/bicep-params/*.bicepparam
+!infra/**/bicep-params/example.bicepparam

@@ -125,33 +125,30 @@ Set `AZURE_CLIENT_ID` to the UAMI's client ID so `ManagedIdentityCredential` res
 
 Do not rely on code to strip secrets out of responses. Rely on the managed identity not having permission to retrieve them in the first place. A regex you have to keep correct will eventually be wrong; a 403 from ARM never is.
 
-The mechanism that makes this clean: in the APIM resource provider, every secret-retrieval operation is a POST `*/action`, not a `*/read`. So a role granting `Microsoft.ApiManagement/service/*/read` **cannot** retrieve secrets by construction — `namedValues/listValue/action`, `subscriptions/listSecrets/action`, `gateways/listKeys/action`, `tenant/listSecrets/action`, and `users/token/action` are all excluded automatically.
+Assign this built-in role at each **individual APIM resource**:
 
-Custom role definition:
+| Role | ID | Required coverage |
+|---|---|---|
+| **API Management Service Reader Role** | `71522526-b88f-4d52-b57f-d31fc3546d0d` | APIM configuration reads, Resource Health, and `Microsoft.Authorization/permissions/read` for the startup canary |
 
-```json
-{
-  "Name": "APIM Knowledge Reader",
-  "IsCustom": true,
-  "Description": "Read-only access to API Management configuration and telemetry. Cannot retrieve secrets.",
-  "Actions": [
-    "Microsoft.ApiManagement/service/read",
-    "Microsoft.ApiManagement/service/*/read",
-    "Microsoft.ResourceHealth/availabilityStatuses/read",
-    "Microsoft.Insights/metrics/read",
-    "Microsoft.Insights/metricDefinitions/read",
-    "Microsoft.Resources/subscriptions/resourceGroups/read"
-  ],
-  "NotActions": [],
-  "DataActions": [],
-  "NotDataActions": [],
-  "AssignableScopes": [
-    "/subscriptions/{sub}/resourceGroups/{rg}"
-  ]
-}
-```
+The APIM reader grants `Microsoft.ApiManagement/service/*/read` but has an
+explicit `NotActions` entry for
+`Microsoft.ApiManagement/service/users/keys/read`. It also does not grant the
+`*/action` operations used by `namedValues/listValue`,
+`subscriptions/listSecrets`, `gateways/listKeys`, `tenant/listSecrets`, or
+`users/token`.
 
-Assign at the **narrowest scope that works** — individual APIM resource IDs if you can, resource group if you must, never subscription root.
+Do not substitute **Reader** or **Monitoring Reader**. Both grant `*/read`;
+Azure `NotActions` entries are exclusions from one role, not deny rules, so
+either role would grant APIM user-key reads back. Do not broaden the
+assignment to the resource group or subscription.
+
+The API Management Service Reader Role does not include
+`Microsoft.Insights/metrics/read` or
+`Microsoft.Insights/metricDefinitions/read`. Before implementing Group D
+metrics in T-17, select and document the narrowest built-in supplemental role
+that grants those actions without restoring APIM user-key access. Do not add
+an unrelated service role preemptively.
 
 For Log Analytics, assign the built-in **Log Analytics Reader** role on the workspace only. Note that this built-in role already excludes `workspaces/sharedKeys/read`, which is what you want.
 
@@ -168,9 +165,28 @@ Create an Entra app registration for the server (`apim-mcp-server`):
 - On the corresponding enterprise application, set **Assignment required = Yes**.
 - Assign your Entra security group to the `Apim.Read` app role.
 
-Create a second app registration for clients (`apim-mcp-client`), pre-authorized on the server app for the `Mcp.Tools.Read` scope so users are not prompted to consent individually. On `apim-mcp-server` → **Expose an API** → **Authorized client applications**, additionally add `apim-mcp-client`'s client ID with the `Mcp.Tools.Read` scope checked — this is a stronger guarantee than delegated-permission admin consent alone and is what actually suppresses the consent prompt for a known client. On `apim-mcp-client` → **Authentication** → add redirect URIs: `http://localhost` (any-port wildcard for MSAL's local loopback flow), `http://127.0.0.1:33418`, and `https://vscode.dev/redirect`.
+On `apim-mcp-server` → **Expose an API** → **Authorized client
+applications**, preauthorize the official Visual Studio Code client
+`aebc6443-996d-45c2-90f0-388ff96faa56`, with `Mcp.Tools.Read` checked. This
+is the normal client for both local and deployed VS Code connections; OAuth
+discovery acquires and refreshes tokens without a static header or a
+`make token` step.
 
-**`MCP_SERVER_AUDIENCE` (§5.3) holds this URL** for the `resource` field in the protected-resource metadata document. **`MCP_SERVER_APP_ID` (§5.3) holds the server app's Application (client) ID** (a GUID) — Entra v2 tokens always set `aud` to this value, not the URI, and `TokenValidationMiddleware`'s `aud` check (§4.4) validates against it.
+Retain the project public-client app registration (`apim-mcp-client`) only for
+optional manual token testing. Its client ID is
+`4c5ab830-b291-4308-8ae2-70d3f978e4a0`; configure its redirect URIs as
+`http://localhost` (any-port wildcard for MSAL's local loopback flow),
+`http://127.0.0.1:33418`, and `https://vscode.dev/redirect`, grant it the
+server's delegated `Mcp.Tools.Read` permission, and preauthorize it on the
+server while the helper is retained. Preauthorization suppresses the consent
+prompt for each known client.
+
+**`MCP_SERVER_AUDIENCE` (§5.3) holds this URL** for the `resource` field and
+as the prefix of the fully-qualified delegated scope in the protected-resource
+metadata document. **`MCP_SERVER_APP_ID` (§5.3) holds the server app's
+Application (client) ID** (a GUID) — Entra v2 tokens always set `aud` to this
+value, not the URI, and `TokenValidationMiddleware`'s `aud` check (§4.4)
+validates against it.
 
 **Blockers to verify before building on this** (flagged as risks, confirm in your tenant before relying on them):
 
@@ -264,7 +280,7 @@ All configuration via environment variables, validated with a Pydantic `Settings
 |---|---|---|
 | `AZURE_TENANT_ID` | yes | |
 | `AZURE_CLIENT_ID` | yes | UAMI client ID |
-| `MCP_SERVER_AUDIENCE` | yes | The server's Application ID URI (§4.3) — a URL, e.g. `http://localhost:8000/mcp` locally or `https://<app>.<region>.azurecontainerapps.io/mcp` deployed. Not an `api://` string. Used for the `resource` field in `/.well-known/oauth-protected-resource`. |
+| `MCP_SERVER_AUDIENCE` | yes | The server's Application ID URI (§4.3) — a URL, e.g. `http://localhost:8000/mcp` locally or `https://<app>.<region>.azurecontainerapps.io/mcp` deployed. Not an `api://` string. Used for the `resource` field and to derive `<audience>/Mcp.Tools.Read` in `/.well-known/oauth-protected-resource`. |
 | `MCP_SERVER_APP_ID` | yes | The server app registration's Application (client) ID (a GUID). Entra v2 tokens always set `aud` to the app ID, not the Application ID URI — the middleware validates `aud` against this value. |
 | `MCP_REQUIRED_ROLE` | yes | default `Apim.Read` |
 | `APIM_SERVICES` | yes | JSON array of `{alias, resourceId, logAnalyticsWorkspaceId?}` |
@@ -625,6 +641,8 @@ Health endpoints outside MCP auth: `/healthz` (liveness) and `/readyz` (ready on
 - Single container, `linux/amd64`, ingress external, target port 8000, path `/mcp`.
 - **`minReplicas: 1`.** Scale-to-zero adds cold-start latency to an interactive tool and will make Copilot feel broken.
 - UAMI attached; `AZURE_CLIENT_ID` set to its client ID.
+- Container Apps logs routed to Log Analytics through Azure Monitor diagnostic
+  settings; never retrieve or embed workspace shared keys.
 - Egress required to: `management.azure.com`, `login.microsoftonline.com`, `api.loganalytics.io`, `*.blob.core.windows.net` (spec export, §Group B), App Insights ingestion.
 - Provision with Bicep under `infra/`, deployable via `azd up`.
 
@@ -657,7 +675,7 @@ token (§4.4).
 {
   "resource": "https://<app>.<region>.azurecontainerapps.io/mcp",
   "authorization_servers": ["https://login.microsoftonline.com/<tenant-id>/v2.0"],
-  "scopes_supported": ["Mcp.Tools.Read"],
+  "scopes_supported": ["https://<app>.<region>.azurecontainerapps.io/mcp/Mcp.Tools.Read"],
   "bearer_methods_supported": ["header"]
 }
 ```
@@ -668,9 +686,12 @@ token (§4.4).
   (`.../v2.0`), matching the `iss` the middleware validates (§4.4). The v1
   issuer (`https://sts.windows.net/<tenant-id>/`) does not line up with the
   v2.0 authorization-server metadata clients discover from it.
-- `scopes_supported` is the delegated scope from §4.3 — currently omitted
-  from earlier drafts of this spec; add it so clients that don't already
-  know the required scope can discover it.
+- `scopes_supported` is the fully-qualified delegated scope from §4.3,
+  derived as `<MCP_SERVER_AUDIENCE>/Mcp.Tools.Read`. For local development it
+  is `http://localhost:8000/mcp/Mcp.Tools.Read`. Never advertise only the
+  short value `Mcp.Tools.Read`: Entra interprets an unqualified scope as a
+  Microsoft Graph scope, so the official Visual Studio Code client requests a
+  token for the wrong resource.
 
 **Serve the document at both the root path and the resource's own path**,
 per RFC 9728's default discovery algorithm: for a resource at
@@ -695,7 +716,7 @@ itself. **Do not implement those three endpoints as a proxy to Entra**
 (see §4.3's confused-deputy warning) — the `resource_metadata` hint plus a
 correct `authorization_servers` value is the supported, proxy-free fix.
 
-### 10.2.1 VS Code discovery-bug workaround (authorization-server metadata mirror)
+### 10.2.1 VS Code authorization-server metadata compatibility mirror
 
 Even with §10.2 fully implemented, a currently-open VS Code MCP client bug
 (tracked publicly:
@@ -710,7 +731,7 @@ When that fetch fails, VS Code falls back to treating **the resource
 server itself** as the authorization server, and starts sending
 `/authorize` requests to the MCP server's own origin instead of Entra's.
 
-**Mitigation implemented:** the server also serves Entra's own real,
+**Transparent compatibility behavior:** the server also serves Entra's own real,
 *unmodified* OIDC discovery document — fetched once from
 `https://login.microsoftonline.com/<tenant-id>/v2.0/.well-known/openid-configuration`
 and cached (`AuthorizationServerMetadataCache`, `src/apim_mcp/auth/middleware.py`)
@@ -734,6 +755,9 @@ authorization server. If the fetch to Entra fails, the route returns
 If a future VS Code release fixes the path-dropping bug, this workaround
 becomes inert (still correct, just unnecessary) — no removal is required,
 but it may be deleted at that point to shrink surface area.
+
+This compatibility behavior is entirely server-side. Users still follow the
+normal VS Code sign-in flow and do not mint or configure tokens manually.
 
 ### 10.3 Foundry
 
@@ -860,7 +884,13 @@ The server app registration needs delegated permissions to Azure Service Managem
 
 ### What is already done and reused unchanged
 
-Everything: server app registration, exposed scope, client app registration and pre-authorization, app role and group assignment, "assignment required", inbound JWT validation, hosting, networking, **and the client configuration on both surfaces**. Copilot and Foundry still acquire a token for the same server app with the same scope. Neither client knows or cares what happens downstream. This is why OBO is the *easier* alternate to retrofit — see Appendix B for the one that isn't.
+Everything: server app registration, exposed scope, OAuth client
+preauthorization, app role and group assignment, "assignment required",
+inbound JWT validation, hosting, networking, **and the client configuration on
+both surfaces**. Copilot and Foundry still acquire a token for the same server
+app with the same scope. Neither client knows or cares what happens downstream.
+This is why OBO is the *easier* alternate to retrofit — see Appendix B for the
+one that isn't.
 
 ### What changes
 

@@ -26,7 +26,7 @@ def _settings(*, ttl_seconds: int = 900, aliases: tuple[str, ...] = ("prod",)) -
     return Settings(
         azure_tenant_id=TENANT_ID,
         azure_client_id="22222222-2222-2222-2222-222222222222",
-        mcp_server_audience="api://apim-mcp",
+        mcp_server_audience="http://localhost:8000/mcp",
         mcp_server_app_id="api://apim-mcp",
         apim_services=[
             ApimServiceConfig(

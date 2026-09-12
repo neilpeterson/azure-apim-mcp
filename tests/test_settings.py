@@ -42,7 +42,7 @@ VALID_SERVICES = json.dumps(
 REQUIRED_ENV: dict[str, str] = {
     "AZURE_TENANT_ID": "11111111-1111-1111-1111-111111111111",
     "AZURE_CLIENT_ID": "22222222-2222-2222-2222-222222222222",
-    "MCP_SERVER_AUDIENCE": "api://apim-mcp",
+    "MCP_SERVER_AUDIENCE": "http://localhost:8000/mcp",
     "MCP_SERVER_APP_ID": "33333333-3333-3333-3333-333333333333",
     "APIM_SERVICES": VALID_SERVICES,
     "APPLICATIONINSIGHTS_CONNECTION_STRING": (
@@ -94,6 +94,32 @@ def test_multiple_missing_required_vars_are_all_named(monkeypatch: pytest.Monkey
         get_settings()
     assert "AZURE_TENANT_ID" in str(excinfo.value)
     assert "MCP_SERVER_AUDIENCE" in str(excinfo.value)
+
+
+@pytest.mark.parametrize(
+    "audience",
+    [
+        "api://apim-mcp",
+        "https://host.example/mcp/",
+        "https://host.example/not-mcp",
+        "https:///mcp",
+        "https://user:password@host.example/mcp",
+        "https://host.example/mcp?environment=lab",
+        "https://host.example/mcp#fragment",
+        "https://host name.example/mcp",
+        "https://host\\name.example/mcp",
+        "https://-host.example/mcp",
+        "https://host_name.example/mcp",
+        "https://host.example:bad/mcp",
+        "https://host.example:/mcp",
+    ],
+)
+def test_invalid_mcp_server_audience_is_rejected(
+    monkeypatch: pytest.MonkeyPatch, audience: str
+) -> None:
+    _set_env(monkeypatch, {"MCP_SERVER_AUDIENCE": audience})
+    with pytest.raises(SettingsError, match="MCP_SERVER_AUDIENCE"):
+        get_settings()
 
 
 def test_apim_services_json_parses(monkeypatch: pytest.MonkeyPatch) -> None:
