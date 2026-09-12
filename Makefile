@@ -30,8 +30,8 @@ fixtures:
 run:
 	$(UV) python -m apim_mcp.server
 
-# Acquire a token and write it to .vscode/mcp.json for local VS Code dev.
-# Workaround for macOS platform broker issues - see docs/DEPLOYMENT.md.
+# Optional manual token acquisition for protocol or client diagnostics.
+# Normal local and hosted VS Code connections use automatic OAuth discovery.
 token:
 	$(UV) python scripts/get_token.py
 

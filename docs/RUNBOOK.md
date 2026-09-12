@@ -25,7 +25,8 @@ in the request. Refer to the TSG https://aka.ms/service-management-reference-err
 
 Needed for:
 - `apim-mcp-server` app registration (`docs/SPEC.md` §4.3)
-- `apim-mcp-client` app registration (§4.3)
+- optional `apim-mcp-client` registration, only if the manual token helper is
+  retained (§4.3)
 - T-20 Bicep, if it creates any app registrations — needs a parameter for this
 
 ```powershell

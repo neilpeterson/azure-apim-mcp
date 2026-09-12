@@ -156,19 +156,19 @@ The middleware must make the **raw inbound token** retrievable inside tool handl
 Implement RFC 9728 protected-resource metadata so VS Code (and any MCP client following the authorization spec) can discover the Entra tenant without a hand-configured header, per the exact JSON shape and endpoint-path rules in §10.2.
 
 **Done when:**
-- [x] `GET /.well-known/oauth-protected-resource` returns `resource` (== `MCP_SERVER_AUDIENCE` exactly), `authorization_servers` (v2.0 issuer), `scopes_supported`, `bearer_methods_supported`
+- [x] `GET /.well-known/oauth-protected-resource` returns `resource` (== `MCP_SERVER_AUDIENCE` exactly), `authorization_servers` (v2.0 issuer), `scopes_supported` (`<MCP_SERVER_AUDIENCE>/Mcp.Tools.Read`, never the short scope), `bearer_methods_supported`
 - [x] Same document also served at the path-suffixed route (`/.well-known/oauth-protected-resource/mcp`)
 - [x] Both discovery routes are unauthenticated; every other route (including `/authorize`, `/token`, `/register` if a client probes them) is not — no OAuth-proxy endpoints are implemented (§4.3)
 - [x] Every `401` response's `WWW-Authenticate` header includes `resource_metadata="<url>"` pointing at the path-suffixed route
-- [x] `test_oauth_protected_resource_*` covers the document shape and both paths; a 401 assertion covers the `resource_metadata` hint
+- [x] `test_oauth_protected_resource_*` covers the document shape, fully-qualified local and deployed scopes, and both paths; a 401 assertion covers the `resource_metadata` hint
 
 ---
 
-### T-08.2 — Authorization-server metadata mirror (VS Code discovery-bug workaround)
+### T-08.2 — VS Code authorization-server metadata compatibility mirror
 **Depends on:** T-08.1 · **Spec:** §10.2.1
 **Files:** `src/apim_mcp/auth/middleware.py`, `src/apim_mcp/server.py`, `tests/test_jwt_middleware.py`, `tests/test_telemetry.py`
 
-Work around a known VS Code MCP client bug (drops the path component of an authorization-server issuer URL when building its own discovery request, so Entra's `.../<tenant>/v2.0/.well-known/...` never resolves and the client falls back to treating this server as its own authorization server). Mirror Entra's real, unmodified OIDC discovery document at this server's own well-known paths — never a fabricated document, never `/authorize`/`/token`/`/register`.
+Transparently handle a known VS Code MCP client discovery bug (drops the path component of an authorization-server issuer URL when building its own discovery request, so Entra's `.../<tenant>/v2.0/.well-known/...` never resolves and the client falls back to treating this server as its own authorization server). Mirror Entra's real, unmodified OIDC discovery document at this server's own well-known paths — never a fabricated document, never `/authorize`/`/token`/`/register`. This server-side compatibility behavior must preserve the normal automatic VS Code OAuth flow without requiring a static token.
 
 **Done when:**
 - [x] `AuthorizationServerMetadataCache` fetches and caches `https://login.microsoftonline.com/<tenant-id>/v2.0/.well-known/openid-configuration` verbatim, with an injectable transport for tests
@@ -332,6 +332,7 @@ The tool description must instruct the model to supply synonyms itself, with the
 Startup: call `list_metric_definitions` per service and log which metrics are actually available.
 
 **Done when:**
+- [ ] The narrowest suitable built-in Azure Monitor role is selected, documented, and assigned only at each APIM resource without restoring `service/users/keys/read`
 - [ ] Deprecated metric names rejected with a message naming the replacement
 - [ ] `test_dimension_filter_passthrough` — `GatewayResponseCodeCategory eq '5xx'` reaches the client
 - [ ] Startup availability probe implemented and logged
@@ -374,17 +375,18 @@ Query construction only, no tool yet. Every user value goes through `declare que
 
 ### T-20 — Infrastructure `[PARALLEL-SAFE]`
 **Depends on:** T-03 · **Spec:** §10.1
-**Files:** `infra/main.bicep`, `infra/*.bicep`, `azure.yaml`
+**Files:** `infra/container-app/`, `infra/container-registry/`, `Dockerfile`, `azure.yaml`, `docs/DEPLOYMENT.md`
 
-Container App (`minReplicas: 1`), UAMI, custom role definition and assignment, App Insights, log analytics. Egress must permit `management.azure.com`, `login.microsoftonline.com`, `api.loganalytics.io`, `*.blob.core.windows.net`.
+Container App (`minReplicas: 1`), UAMI, container registry (deployed separately from `infra/container-registry/main.bicep`, then referenced as `existing` by `infra/container-app/main.bicep`) with identity-based `AcrPull`, built-in APIM role assignments at each APIM resource, App Insights, log analytics. Egress must permit `management.azure.com`, `login.microsoftonline.com`, `api.loganalytics.io`, `*.blob.core.windows.net`.
 
 **Done when:**
-- [ ] `az deployment group validate` passes
-- [ ] `minReplicas` is 1, not 0
-- [ ] Custom role matches §4.2 exactly, including the empty `NotActions`
-- [ ] Role assigned at narrowest configured scope, never subscription root
-- [ ] `AZURE_CLIENT_ID` set to the UAMI client ID
-- [ ] `azd up` completes from clean
+- [x] `az deployment group validate` passes against the lab subscription; the resulting Container App deployment and health endpoints were also verified on 2026-09-11.
+- [x] `minReplicas` is 1, not 0
+- [x] Built-in API Management Service Reader covers the currently implemented APIM, Resource Health, and permission-canary calls without granting APIM user-key reads
+- [x] Role assigned at narrowest configured scope, never subscription root (per-APIM-instance and per-workspace modules, `infra/container-app/bicep-modules/role-assignment-*.bicep`)
+- [x] `AZURE_CLIENT_ID` set to the UAMI client ID
+- [x] Container Apps logs use Azure Monitor diagnostic settings without retrieving a Log Analytics workspace shared key
+- [ ] `azd up` completes from clean — **needs a human**: deploy step intentionally not run (also depends on `infra/container-registry/main.bicep` being deployed and hydrated with a real image first, the §4.3 Entra app registrations existing, and the `MCP_SERVER_AUDIENCE` sequence documented in `docs/DEPLOYMENT.md`).
 
 ---
 

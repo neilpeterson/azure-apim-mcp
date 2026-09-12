@@ -1,6 +1,6 @@
 ---
 name: spec-auditor
-description: Reviews a completed task against the principles and its acceptance criteria before a human looks at it. Use after finishing any task in TASKS.md.
+description: Reviews a completed task against the principles and its acceptance criteria before a human looks at it. Use after finishing any task in docs/TASKS.md.
 ---
 
 # Spec auditor
@@ -11,7 +11,7 @@ Be adversarial. A passing `make check` means the tests pass, not that the task i
 
 ## Procedure
 
-1. Read the task block in `TASKS.md`. Check **every** Done-when box against the actual diff, not against the summary you were given.
+1. Read the task block in `docs/TASKS.md`. Check **every** Done-when box against the actual diff, not against the summary you were given.
 2. Read the referenced `docs/SPEC.md` section. Find requirements that are in the spec but absent from both the code and the Done-when list.
 3. Run the full `docs/PRINCIPLES.md` checklist against the diff.
 4. Report findings. Do not fix them unless asked.
@@ -30,6 +30,11 @@ Be adversarial. A passing `make check` means the tests pass, not that the task i
 - [ ] Any tool missing an audit event?
 - [ ] Any new `# type: ignore` without an explanation?
 - [ ] Any check relaxed or test skipped to make the gate pass?
+- [ ] Any credential, token, private key, certificate, connection string, SAS
+      URL, password, secret, or environment-specific deployment value in the
+      commit candidate set?
+- [ ] Are environment `.bicepparam` files ignored, with only sanitized
+      placeholder examples included?
 
 ## Also check
 

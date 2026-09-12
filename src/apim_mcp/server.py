@@ -226,7 +226,7 @@ def _make_oauth_protected_resource(
             {
                 "resource": settings.mcp_server_audience,
                 "authorization_servers": [entra_issuer(settings.azure_tenant_id)],
-                "scopes_supported": [MCP_DELEGATED_SCOPE],
+                "scopes_supported": [f"{settings.mcp_server_audience}/{MCP_DELEGATED_SCOPE}"],
                 "bearer_methods_supported": ["header"],
             }
         )

@@ -1,0 +1,29 @@
+# azd project file for the APIM Knowledge MCP server.
+# `azd deploy api` builds and deploys the `api` service image after the
+# Container App has been provisioned. The registry must already exist; deploy
+# infra/container-registry/main.bicep with
+# an environment-specific parameter file copied from
+# infra/container-registry/bicep-params/example.bicepparam first. Hydrate that
+# registry with a real image before provisioning the Container App. See
+# docs/DEPLOYMENT.md for the full first-deployment sequence and current
+# `azd up` limitation.
+name: apim-mcp
+metadata:
+  template: apim-mcp@0.1.0
+
+infra:
+  provider: bicep
+  path: infra/container-app
+
+services:
+  api:
+    project: .
+    host: containerapp
+    language: python
+    resourceName: ${SERVICE_API_NAME}
+    docker:
+      path: Dockerfile
+      context: .
+      registry: ${AZURE_CONTAINER_REGISTRY_ENDPOINT}
+      image: apim-mcp
+      remoteBuild: true

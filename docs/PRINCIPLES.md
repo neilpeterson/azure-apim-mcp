@@ -62,7 +62,7 @@ Each principle states the rule, why it exists, what violating it looks like, and
 
 **Rule.** The code never calls `namedValues/listValue`, `subscriptions/listSecrets`, `gateways/listKeys`, `tenant/listSecrets`, or `users/token`. Never returns `encodedCertificate`, certificate passwords, or backend `credentials`.
 
-**Why.** The primary control is Azure RBAC: the managed identity's custom role grants `Microsoft.ApiManagement/service/*/read`, and every secret-retrieval operation in that resource provider is a POST `*/action`, not a `*/read`. So the identity *cannot* fetch secrets, by construction. Code-level redaction is the second layer, for secrets embedded in content the identity is legitimately allowed to read (inline credentials in policy XML, tokens in log query strings).
+**Why.** The primary control is Azure RBAC. The managed identity receives the built-in **API Management Service Reader Role** at each individual APIM resource. It grants `Microsoft.ApiManagement/service/*/read`, explicitly excludes `Microsoft.ApiManagement/service/users/keys/read`, and does not grant the `*/action` operations used by `namedValues/listValue`, `subscriptions/listSecrets`, `gateways/listKeys`, `tenant/listSecrets`, or `users/token`. Code-level redaction is the second layer, for secrets embedded in content the identity is legitimately allowed to read (inline credentials in policy XML, tokens in log query strings). Any future metrics role must be selected separately when metrics are implemented and must preserve these invariants.
 
 The distinction matters: do not write code that fetches a secret and then strips it. A regex you have to keep correct will eventually be wrong. A 403 from Azure never is.
 

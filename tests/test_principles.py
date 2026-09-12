@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 SRC_ROOT = Path(__file__).resolve().parent.parent / "src" / "apim_mcp"
+INFRA_ROOT = Path(__file__).resolve().parent.parent / "infra"
 
 # Principle 1: credential classes that must only be constructed in the seam.
 CREDENTIAL_CLASS_NAMES = frozenset(
@@ -207,6 +208,21 @@ def test_no_secret_actions() -> None:
                 if action in line:
                     violations.append(Violation(path, lineno, f"forbidden action {action!r}"))
     assert not violations, "secret-retrieving action referenced:\n" + "\n".join(
+        str(v) for v in violations
+    )
+
+
+def test_infrastructure_does_not_retrieve_secrets() -> None:
+    """Principle 5: deployment templates must not retrieve live secret values."""
+    violations: list[Violation] = []
+    forbidden_calls = (".listKeys(", ".listSecrets(", ".listValue(")
+    for path in INFRA_ROOT.rglob("*.bicep"):
+        text = path.read_text(encoding="utf-8")
+        for lineno, line in enumerate(text.splitlines(), start=1):
+            for call in forbidden_calls:
+                if call in line:
+                    violations.append(Violation(path, lineno, f"forbidden call {call!r}"))
+    assert not violations, "secret-retrieving infrastructure call:\n" + "\n".join(
         str(v) for v in violations
     )
 
