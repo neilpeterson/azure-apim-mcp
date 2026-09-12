@@ -131,3 +131,30 @@ The distinction matters: do not write code that fetches a secret and then strips
 **Why.** Under the v1 access model the Azure activity log records the managed identity, not the human who asked. The application log is the *only* record of who asked what. It is a compliance artifact, not debug output. Arguments are logged because they are the record of the question; responses are not, because they may contain configuration detail that does not belong in a log sink with different access controls.
 
 **Enforced by.** `tests/test_telemetry.py::test_every_tool_emits_audit_event` iterates the registered tool list.
+
+---
+
+## 11. Existing customer infrastructure is configuration-immutable
+
+**Rule.** Deployment templates may reference existing APIM services and Log
+Analytics workspaces only to grant the MCP identity narrowly scoped read-only
+role assignments. They must not create or update APIM diagnostic settings,
+APIs, policies, log routing, workspace configuration, or any other property on
+those existing resources. Infrastructure created and owned by this deployment,
+such as the Container App environment and its diagnostics, remains managed by
+the template.
+
+**Why.** The MCP server consumes existing platform configuration; it does not
+own it. Changing customer-managed APIM or observability settings creates an
+unexpected deployment blast radius and can overwrite independently managed
+retention, routing, or compliance controls. Access grants are the sole intended
+integration point.
+
+**Violation looks like.** A Bicep module that deploys
+`Microsoft.Insights/diagnosticSettings` with an existing APIM service as its
+scope, or any non-`existing` `Microsoft.ApiManagement/*` resource declaration.
+
+**Enforced by.**
+`tests/test_principles.py::test_existing_apim_infrastructure_is_not_modified`
+scans the Bicep templates for APIM mutations and APIM-scoped diagnostic
+settings.

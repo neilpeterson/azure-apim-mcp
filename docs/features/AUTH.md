@@ -194,9 +194,10 @@ APIM `*/action` operations used by `namedValues/listValue`,
 scope; their `*/read` permission would grant user-key reads despite the APIM
 role's `NotActions`, because `NotActions` is not a deny rule.
 
-Metrics are routed through each APIM service's `AllMetrics` diagnostic setting
-and queried from the configured Log Analytics workspace. This preserves the
-narrow APIM role boundary; see [TELEMETRY.md](TELEMETRY.md).
+Metrics are queried from the configured Log Analytics workspace after each
+APIM service's independently managed diagnostic settings route `AllMetrics`
+there. This preserves the narrow APIM role boundary; see
+[TELEMETRY.md](TELEMETRY.md).
 
 ### Log Analytics
 

@@ -45,7 +45,7 @@ param apimServices = [
 
 The alias is the `service` value passed to the tools. The workspace can be in a
 different resource group or subscription as long as the deploying identity can
-create the required role assignment and diagnostic setting at those scopes.
+create the required read-only role assignment at that scope.
 
 Omitting `logAnalyticsWorkspaceId` leaves the APIM configuration and search
 tools available, but telemetry tools return a configuration error for that
@@ -53,18 +53,12 @@ service.
 
 ## Metrics configuration
 
-The repository's Container App Bicep deployment automatically creates an APIM
-diagnostic setting named `apim-mcp-telemetry` for every service with a
-`logAnalyticsWorkspaceId`. It:
-
-- enables the `AllMetrics` category;
-- enables the resource-specific `GatewayLogs` category;
-- sends both data streams to that service's configured workspace; and
-- grants the server identity the built-in **Log Analytics Reader** role at the
-  workspace scope.
-
-Redeploying `infra/container-app/main.bicep` creates or updates this setting.
-No custom role or APIM-scoped **Monitoring Reader** assignment is required.
+Each existing APIM service must already have diagnostics configured to send
+`AllMetrics` to its configured Log Analytics workspace. The repository's
+deployment does not create or update that diagnostic setting; it only grants
+the server identity the built-in **Log Analytics Reader** role at the
+workspace scope. No custom role or APIM-scoped **Monitoring Reader**
+assignment is required.
 
 Metrics are exported asynchronously and can take several minutes to appear in
 `AzureMetrics`. Diagnostic export also flattens APIM metric dimensions.
@@ -73,9 +67,9 @@ tools for API, operation, response-code, and error breakdowns.
 
 ## Gateway-log configuration
 
-The gateway-log tools require APIM resource logs in the resource-specific
-`ApiManagementGatewayLogs` table. The same deployment module enables
-`GatewayLogs` and sets the destination type to `Dedicated`.
+The gateway-log tools require the existing APIM diagnostic configuration to
+send `GatewayLogs` to the resource-specific `ApiManagementGatewayLogs` table.
+The diagnostic destination type must be `Dedicated`.
 
 `Dedicated` selects Azure resource-specific tables, which is what creates
 `ApiManagementGatewayLogs`; the legacy destination writes to

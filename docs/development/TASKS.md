@@ -337,7 +337,7 @@ Startup: query distinct recent metric names per service and log which metrics
 are actually available.
 
 **Done when:**
-- [x] APIM `AllMetrics` is routed to the configured workspace and read through the existing workspace-scoped Log Analytics Reader role; Monitoring Reader is not used because it restores `service/users/keys/read`
+- [x] APIM `AllMetrics` is assumed to be routed by independently managed diagnostics and is read through the workspace-scoped Log Analytics Reader role; Monitoring Reader is not used because it restores `service/users/keys/read`
 - [x] Deprecated metric names rejected with a message naming the replacement
 - [x] `test_dimension_filter_rejected` — dimension filtering explains the `AllMetrics` flattening limitation and points to `apim_query_gateway_logs`
 - [x] Startup availability probe implemented and logged
@@ -392,6 +392,7 @@ Container App (`minReplicas: 1`), UAMI, container registry (deployed separately 
 - [x] `minReplicas` is 1, not 0
 - [x] Built-in API Management Service Reader covers the currently implemented APIM, Resource Health, and permission-canary calls without granting APIM user-key reads
 - [x] Role assigned at narrowest configured scope, never subscription root (per-APIM-instance and per-workspace modules, `infra/container-app/bicep-modules/role-assignment-*.bicep`)
+- [x] Existing APIM services and telemetry workspaces are not modified beyond read-only role assignments; diagnostic settings remain externally managed prerequisites
 - [x] `AZURE_CLIENT_ID` set to the UAMI client ID
 - [x] Container Apps logs use Azure Monitor diagnostic settings without retrieving a Log Analytics workspace shared key
 

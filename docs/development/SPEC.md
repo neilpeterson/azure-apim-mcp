@@ -152,9 +152,11 @@ The API Management Service Reader Role does not include
 `Microsoft.Insights/metricDefinitions/read`. No built-in supplemental role
 grants those actions without also granting broad `*/read`, which would restore
 APIM user-key access, and this tenant does not permit creating custom roles.
-Route each APIM service's `AllMetrics` diagnostic category to its configured
-Log Analytics workspace and query the fixed `AzureMetrics` table using the
-workspace-scoped built-in **Log Analytics Reader** role.
+Require each APIM service's independently managed diagnostics to route
+`AllMetrics` to its configured Log Analytics workspace, then query the fixed
+`AzureMetrics` table using the workspace-scoped built-in **Log Analytics
+Reader** role. This repository must not create or update diagnostic settings
+on existing APIM services.
 
 For Log Analytics, assign the built-in **Log Analytics Reader** role on the workspace only. Note that this built-in role already excludes `workspaces/sharedKeys/read`, which is what you want.
 

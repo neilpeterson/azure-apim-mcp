@@ -1,7 +1,7 @@
 """APIM platform metrics queried from the fixed ``AzureMetrics`` table.
 
-APIM ``AllMetrics`` diagnostic settings export metric series to Log
-Analytics. The server reads that fixed table through the existing
+Independently managed APIM ``AllMetrics`` diagnostic settings export metric
+series to Log Analytics. The server reads that fixed table through the
 workspace-scoped Log Analytics Reader role, avoiding broad Monitoring Reader
 permissions on the APIM resource.
 

@@ -223,6 +223,28 @@ def test_infrastructure_does_not_retrieve_secrets() -> None:
     )
 
 
+def test_existing_apim_infrastructure_is_not_modified() -> None:
+    """Principle 11: Bicep may only reference existing APIM for RBAC."""
+    violations: list[Violation] = []
+    for path in INFRA_ROOT.rglob("*.bicep"):
+        text = path.read_text(encoding="utf-8")
+        lines = text.splitlines()
+        for lineno, line in enumerate(lines, start=1):
+            if (
+                "'Microsoft.ApiManagement/" in line
+                and line.lstrip().startswith("resource ")
+                and " existing " not in line
+            ):
+                violations.append(Violation(path, lineno, "APIM resource is not declared existing"))
+        if "Microsoft.ApiManagement/" in text and "Microsoft.Insights/diagnosticSettings" in text:
+            violations.append(
+                Violation(path, 1, "template combines existing APIM with diagnostics")
+            )
+    assert not violations, "existing APIM infrastructure is modified:\n" + "\n".join(
+        str(v) for v in violations
+    )
+
+
 def _module_level_statements(tree: ast.Module) -> list[ast.stmt]:
     return list(tree.body)
 

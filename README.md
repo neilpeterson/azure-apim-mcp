@@ -91,11 +91,12 @@ configured by the server operator, such as `prod`.
 | `apim_query_gateway_logs` | Bounded gateway-log details filtered by API, operation, response category, duration, or correlation ID |
 | `apim_summarize_errors` | Gateway failures grouped by API, error reason, and response code |
 
-Telemetry requires the APIM diagnostic settings deployed by this repository:
-`AllMetrics` must be routed to the configured Log Analytics workspace, and
-gateway logs must populate `ApiManagementGatewayLogs`. Metric dimensions are
-not available through the diagnostic export; use the gateway-log tools for
-API, operation, response-code, and error breakdowns.
+Telemetry requires each existing APIM service to already route `AllMetrics`
+to the configured Log Analytics workspace and populate the resource-specific
+`ApiManagementGatewayLogs` table. This repository does not modify APIM
+diagnostic settings. Metric dimensions are not available through the
+diagnostic export; use the gateway-log tools for API, operation, response-code,
+and error breakdowns.
 
 The implemented tool list evolves with `docs/development/TASKS.md`; clients discover the
 currently registered set directly from the server.

@@ -270,14 +270,14 @@ The template assigns:
 
 - the built-in **API Management Service Reader Role** to the UAMI on each
   individual APIM resource; and
-- an APIM diagnostic setting that routes `AllMetrics` to each service's
-  configured Log Analytics workspace; and
 - the built-in **Log Analytics Reader** role to the UAMI on each configured
   workspace.
 
 It never grants these runtime roles at resource-group or subscription scope.
 See [`TELEMETRY.md`](../features/TELEMETRY.md) for the role-safety rationale,
-diagnostic export behavior, and validation steps.
+required pre-existing diagnostic configuration, and validation steps. The
+template does not modify existing APIM services or workspaces beyond these
+read-only role assignments.
 
 ## 3. Validate the templates
 

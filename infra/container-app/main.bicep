@@ -143,21 +143,6 @@ module apimServiceReaderRoleAssignments 'bicep-modules/role-assignment-apim.bice
   }
 ]
 
-// No safe built-in role grants direct Microsoft.Insights metric reads:
-// Monitoring Reader includes */read and would restore APIM user-key reads.
-// Route AllMetrics to the configured workspace instead; the existing,
-// narrowly-scoped Log Analytics Reader assignment can read AzureMetrics.
-module apimTelemetryDiagnosticSettings 'bicep-modules/diagnostic-settings-apim.bicep' = [
-  for svc in telemetryServices: {
-    name: 'diagnostics-apim-${svc.alias}'
-    scope: resourceGroup(split(svc.resourceId, '/')[2], split(svc.resourceId, '/')[4])
-    params: {
-      apimServiceName: last(split(svc.resourceId, '/'))
-      workspaceResourceId: svc.logAnalyticsWorkspaceId
-    }
-  }
-]
-
 // Built-in Log Analytics Reader on each configured workspace, scoped to
 // that workspace only (already excludes workspaces/sharedKeys/read).
 module lawRoleAssignments 'bicep-modules/role-assignment-law.bicep' = [

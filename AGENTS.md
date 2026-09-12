@@ -40,7 +40,7 @@ candidate diff is clean.
 - **Never call live Azure.** Tests run against recorded fixtures in `tests/fixtures/`. If you need a fixture that does not exist, add a recorder entry in `scripts/record_fixtures.py` and stop — a human runs it.
 - **Update `docs/development/TASKS.md`** — tick the checkboxes as you complete them. That file is the shared state between sessions.
 
-## The ten principles
+## The eleven principles
 
 Summary only. Numbering matches `docs/development/PRINCIPLES.md` exactly — read that file for rationale, violation examples, and which test enforces each one.
 
@@ -54,6 +54,7 @@ Summary only. Numbering matches `docs/development/PRINCIPLES.md` exactly — rea
 8. **Errors are results, not exceptions.** Never raise out of a tool handler.
 9. **Label untrusted content.** API descriptions and policy text reach the model as data, not instructions.
 10. **Audit every tool call.** Caller `oid`, tool, arguments, outcome. Never response bodies.
+11. **Existing infrastructure is immutable.** Existing APIM services and telemetry workspaces receive only narrowly scoped read-only role assignments.
 
 ## Commands
 

@@ -174,8 +174,9 @@ projected.
 
 **Superseded 2026-09-12.** This tenant does not permit custom role creation,
 and the built-in Monitoring Reader role would restore APIM user-key reads.
-T-17 therefore routes APIM `AllMetrics` to Log Analytics and discovers recent
-`MetricName` values from the fixed `AzureMetrics` table at startup. No direct
+T-17 therefore reads APIM `AllMetrics` from Log Analytics and discovers recent
+`MetricName` values from the fixed `AzureMetrics` table at startup. The APIM
+diagnostic routing is an externally managed prerequisite; no direct
 metric-definition permission or human preflight is required.
 
 **Limitation:** diagnostic settings flatten multi-dimensional platform
