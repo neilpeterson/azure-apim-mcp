@@ -51,7 +51,16 @@ param mcpServerAppId string
 @description('Entra app role required to call the server. Maps to MCP_REQUIRED_ROLE.')
 param mcpRequiredRole string = 'Apim.Read'
 
-@description('The APIM_SERVICES allowlist (docs/development/SPEC.md §5.3): the alias->resourceId mapping the server is permitted to query, and the resource group(s) RBAC will be scoped to. Each entry\'s resourceGroup is derived automatically from resourceId; logAnalyticsWorkspaceId is optional.')
+@description('Application log level. Use DEBUG temporarily for safe fixed-KQL diagnostics.')
+@allowed([
+  'DEBUG'
+  'INFO'
+  'WARNING'
+  'ERROR'
+])
+param apimMcpLogLevel string = 'INFO'
+
+@description('The APIM_SERVICES allowlist (docs/development/SPEC.md §5.3): the alias->resourceId mapping the server is permitted to query, and the resource group(s) RBAC will be scoped to. Each entry\'s resourceGroup is derived automatically from resourceId; logAnalyticsWorkspaceId and gatewayLogTableMode are optional.')
 param apimServices array
 
 @description('CPU cores allocated to the container.')
@@ -247,6 +256,7 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
             { name: 'MCP_SERVER_AUDIENCE', value: mcpServerAudience }
             { name: 'MCP_SERVER_APP_ID', value: mcpServerAppId }
             { name: 'MCP_REQUIRED_ROLE', value: mcpRequiredRole }
+            { name: 'APIM_MCP_LOG_LEVEL', value: apimMcpLogLevel }
             { name: 'APIM_SERVICES', value: string(apimServices) }
             {
               name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'

@@ -22,7 +22,7 @@ from apim_mcp.common.errors import ToolError, upstream_error
 from apim_mcp.common.formatting import ResponseFormat
 from apim_mcp.server import ToolRegistration, audited_tool
 from apim_mcp.settings import ApimServiceConfig, Settings
-from apim_mcp.tools._common import resolve_service
+from apim_mcp.tools._common import require_workspace, resolve_service
 
 _RESOURCE_HEALTH_API_VERSION = "2023-07-01-preview"
 _CERT_WARNING_DAYS = 30
@@ -131,9 +131,12 @@ async def _network_status_section(client: ArmClient, config: ApimServiceConfig) 
 
 
 async def _capacity_section(ctx: CallContext, config: ApimServiceConfig) -> dict[str, Any]:
+    workspace_id = require_workspace(config)
+    if isinstance(workspace_id, ToolError):
+        return {"status": "unavailable", "reason": workspace_id.message}
     result = await MetricsClient(ctx).query(
         config.resource_id,
-        config.log_analytics_workspace_id,
+        workspace_id,
         metric="Capacity",
         timespan="PT1H",
         interval="PT5M",
@@ -149,13 +152,26 @@ async def _capacity_section(ctx: CallContext, config: ApimServiceConfig) -> dict
         and item["SampleCount"] > 0
     ]
     sample_count = sum(sample_count for _, sample_count in weighted_samples)
+    if not weighted_samples or sample_count == 0:
+        return {
+            "status": "unavailable",
+            "reason": (
+                "No usable Capacity samples were found in Log Analytics for the past hour. "
+                "Confirm `AllMetrics` export and allow for ingestion delay; diagnostic settings "
+                "do not backfill historical data."
+            ),
+        }
     weighted_total = sum(value * count for value, count in weighted_samples)
-    return {
+    section: dict[str, Any] = {
         "status": "ok",
-        "average": weighted_total / sample_count if sample_count else None,
+        "average": weighted_total / sample_count,
         "sampleCount": sample_count,
         "timespan": "PT1H",
     }
+    if result.get("partial"):
+        section["partial"] = True
+        section["reason"] = "Log Analytics returned partial results; the average may be incomplete."
+    return section
 
 
 def register_discovery_tools(

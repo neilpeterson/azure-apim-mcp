@@ -356,7 +356,13 @@ Query construction only, no tool yet. Every user value goes through `declare que
 - [x] `test_injection_attempt_is_inert` — `api_id = "'; SigninLogs | take 100 //"` produces an unchanged query shape and binds the value as a parameter
 - [x] `test_timespan_capped` — `P30D` rejected with a message naming the limit
 - [x] `test_limit_capped` — >200 clamped, `truncated` set
-- [x] Only `ApiManagementGatewayLogs` is ever referenced
+- [x] Only the fixed APIM gateway-log tables `ApiManagementGatewayLogs` and
+  `AzureDiagnostics` are referenced; both are resource-scoped and normalized
+  to the same secret-blind output shape
+- [x] Per-service table mode avoids unnecessary dual-table queries; automatic
+  mode tolerates destination tables that have not been created yet
+- [x] Every Log Analytics query has a stable registry entry and documented
+  add, update, and removal workflow in `QUERY_CATALOG.md`
 
 ---
 
@@ -367,7 +373,10 @@ Query construction only, no tool yet. Every user value goes through `declare que
 `apim_query_gateway_logs` and `apim_summarize_errors`.
 
 **Done when:**
-- [x] `Url` omitted unless `include_urls=True`; query string stripped even then
+- [x] `Url` omitted unless `include_urls=True`; query string stripped in the
+  final KQL projection and again in Python
+- [x] Both tools query and normalize the fixed `ApiManagementGatewayLogs` and
+  legacy `AzureDiagnostics` tables without lossy cross-table deduplication
 - [x] `test_summarize_errors_groups_correctly` — grouped by ApiId × LastErrorReason × ResponseCode with a representative CorrelationId
 - [x] Both return within 60s against fixtures
 - [x] `Data.Read` scope requested via `credential_for(ctx, LOGS_SCOPE)` — not `ARM_SCOPE`
@@ -376,6 +385,8 @@ The column list is pinned from Microsoft Learn's generated
 `ApiManagementGatewayLogs` reference dated 2026-07-27. Queries use
 `column_ifexists` for schema tolerance; a live `getschema` check remains a
 recommended deployment validation rather than an implementation blocker.
+Tests do not call Azure and therefore validate only the fixed query shape and
+pinned mappings, not the deployed workspace schema.
 
 ---
 

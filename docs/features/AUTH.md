@@ -234,7 +234,7 @@ Remove the user from the Entra security group (or remove their individual assign
 
 Two steps are required:
 
-1. Add the instance to the `APIM_SERVICES` environment variable (JSON array entry with `alias`, `resourceId`, and optionally `logAnalyticsWorkspaceId`).
+1. Add the instance to the `APIM_SERVICES` environment variable (JSON array entry with `alias`, `resourceId`, and optionally `logAnalyticsWorkspaceId` and `gatewayLogTableMode`).
 2. Assign the UAMI the **API Management Service Reader Role** on the new APIM
    resource itself and, when configured, **Log Analytics Reader** on its
    workspace.

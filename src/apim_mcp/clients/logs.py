@@ -1,8 +1,9 @@
 """Fixed-shape, parameterized KQL construction for APIM gateway logs (T-18).
 
-Only the ``ApiManagementGatewayLogs`` table is addressable. User-controlled
-values are encoded into a ``declare query_parameters`` preamble and the query
-body references parameter names exclusively
+Only the resource-specific ``ApiManagementGatewayLogs`` and legacy
+``AzureDiagnostics`` tables are addressable. User-controlled values are
+encoded into a ``declare query_parameters`` preamble and the query body
+references parameter names exclusively
 (``docs/development/PRINCIPLES.md`` §6).
 
 Shared Log Analytics plumbing lives in ``_loganalytics``. What stays here is
@@ -36,23 +37,134 @@ from apim_mcp.common.redaction import (
     strip_url_query_string,
     wrap_untrusted_content,
 )
+from apim_mcp.queries.catalog import (
+    GATEWAY_ERROR_SUMMARY,
+    GATEWAY_LOG_DETAIL,
+    QueryDefinition,
+)
 
 ResponseCodeCategory = Literal["2xx", "3xx", "4xx", "5xx"]
+GatewayLogTableMode = Literal["auto", "resourceSpecific", "azureDiagnostics"]
 _MAX_TIMESPAN = timedelta(days=7)
 _MAX_LIMIT = 200
 _MAX_TOP = 100
 _TIMESPAN_EXAMPLE = "'PT1H', with a maximum of 'P7D'"
 _UNTRUSTED_FIELDS = ("LastErrorReason", "LastErrorSource", "LastErrorMessage")
+_MISSING_TABLE_WARNING_CODES = frozenset(
+    {"FailedToResolveTableExpression", "FuzzyUnionSourceNotFound"}
+)
+_RESOURCE_SPECIFIC_SOURCE = """
+ApiManagementGatewayLogs
+| where _ResourceId =~ resource_id
+| project TimeGenerated=todatetime(column_ifexists("TimeGenerated", datetime(null))),
+          ApiId=tostring(column_ifexists("ApiId", "")),
+          OperationId=tostring(column_ifexists("OperationId", "")),
+          Method=tostring(column_ifexists("Method", "")),
+          ResponseCode=toint(column_ifexists("ResponseCode", 0)),
+          TotalTime=tolong(column_ifexists("TotalTime", 0)),
+          BackendTime=tolong(column_ifexists("BackendTime", 0)),
+          IsRequestSuccess=tobool(column_ifexists("IsRequestSuccess", true)),
+          LastErrorReason=tostring(column_ifexists("LastErrorReason", "")),
+          LastErrorSource=tostring(column_ifexists("LastErrorSource", "")),
+          LastErrorMessage=tostring(column_ifexists("LastErrorMessage", "")),
+          CorrelationId=tostring(column_ifexists("CorrelationId", "")),
+          Region=tostring(column_ifexists("Region", "")),
+          Url=tostring(column_ifexists("Url", ""))
+""".strip()
+_AZURE_DIAGNOSTICS_SOURCE = """
+AzureDiagnostics
+| where _ResourceId =~ resource_id
+| where Category == "GatewayLogs"
+| extend _AdditionalFields=todynamic(column_ifexists("AdditionalFields", dynamic({})))
+| extend _ResponseCode=coalesce(
+             toint(column_ifexists("responseCode_d", real(null))),
+             toint(_AdditionalFields["responseCode"]),
+             int(0)
+         )
+| project TimeGenerated=todatetime(column_ifexists("TimeGenerated", datetime(null))),
+          ApiId=coalesce(
+              tostring(column_ifexists("apiId_s", "")),
+              tostring(_AdditionalFields["apiId"])
+          ),
+          OperationId=coalesce(
+              tostring(column_ifexists("operationId_s", "")),
+              tostring(_AdditionalFields["operationId"])
+          ),
+          Method=coalesce(
+              tostring(column_ifexists("method_s", "")),
+              tostring(_AdditionalFields["method"])
+          ),
+          ResponseCode=_ResponseCode,
+          TotalTime=coalesce(
+              tolong(column_ifexists("DurationMs", long(null))),
+              tolong(_AdditionalFields["duration"]),
+              long(0)
+          ),
+          BackendTime=coalesce(
+              tolong(column_ifexists("backendTime_d", real(null))),
+              tolong(_AdditionalFields["backendTime"]),
+              long(0)
+          ),
+          IsRequestSuccess=coalesce(
+              tobool(column_ifexists("isRequestSuccess_b", bool(null))),
+              tobool(_AdditionalFields["isRequestSuccess"]),
+              _ResponseCode < 400
+          ),
+          LastErrorReason=coalesce(
+              tostring(column_ifexists("lastError_reason_s", "")),
+              tostring(_AdditionalFields["lastError_reason"])
+          ),
+          LastErrorSource=coalesce(
+              tostring(column_ifexists("lastError_source_s", "")),
+              tostring(_AdditionalFields["lastError_source"])
+          ),
+          LastErrorMessage=coalesce(
+              tostring(column_ifexists("lastError_message_s", "")),
+              tostring(_AdditionalFields["lastError_message"])
+          ),
+          CorrelationId=coalesce(
+              tostring(column_ifexists("correlationId_g", "")),
+              tostring(_AdditionalFields["correlationId"])
+          ),
+          Region=coalesce(
+              tostring(column_ifexists("region_s", "")),
+              tostring(_AdditionalFields["region"])
+          ),
+          Url=coalesce(
+              tostring(column_ifexists("requestUrl_s", "")),
+              tostring(_AdditionalFields["requestUrl"])
+          )
+""".strip()
+_EMPTY_SOURCE = """
+datatable(
+    TimeGenerated:datetime,
+    ApiId:string,
+    OperationId:string,
+    Method:string,
+    ResponseCode:int,
+    TotalTime:long,
+    BackendTime:long,
+    IsRequestSuccess:bool,
+    LastErrorReason:string,
+    LastErrorSource:string,
+    LastErrorMessage:string,
+    CorrelationId:string,
+    Region:string,
+    Url:string
+)[]
+""".strip()
 
 
 @dataclass(frozen=True)
 class GatewayLogQuery:
+    definition: QueryDefinition
     query: str
     timespan: Timespan
     limit: int
     truncated: bool
     mode: Literal["detail", "summary"]
     include_urls: bool = False
+    tolerated_empty_partial_codes: frozenset[str] = frozenset()
 
 
 def _bounded_timespan(value: str) -> Timespan | ToolError:
@@ -66,9 +178,24 @@ def _bounded_timespan(value: str) -> Timespan | ToolError:
     return parsed
 
 
+def _normalized_gateway_sources(table_mode: GatewayLogTableMode) -> str:
+    """Return the configured fixed gateway-log source with a normalized shape."""
+    if table_mode == "resourceSpecific":
+        return _RESOURCE_SPECIFIC_SOURCE
+    if table_mode == "azureDiagnostics":
+        return _AZURE_DIAGNOSTICS_SOURCE
+    return (
+        "union isfuzzy=true\n"
+        f"(\n{_EMPTY_SOURCE}\n),\n"
+        f"(\n{_RESOURCE_SPECIFIC_SOURCE}\n),\n"
+        f"(\n{_AZURE_DIAGNOSTICS_SOURCE}\n)"
+    )
+
+
 def build_gateway_log_query(
     *,
     resource_id: str,
+    table_mode: GatewayLogTableMode = "auto",
     timespan: str = "PT1H",
     api_id: str | None = None,
     operation_id: str | None = None,
@@ -101,53 +228,53 @@ def build_gateway_log_query(
         f"min_duration_ms:long = {min_duration_ms or 0}, "
         f"has_correlation_id:bool = {str(correlation_id is not None).lower()}, "
         f"correlation_id:string = {kql_string(correlation_id or '')}, "
+        f"include_urls:bool = {str(include_urls).lower()}, "
         f"limit_value:long = {effective_limit}"
         ");"
     )
-    url_projection = ', Url=tostring(column_ifexists("Url", ""))' if include_urls else ""
     body = f"""
-ApiManagementGatewayLogs
-| where _ResourceId =~ resource_id
-| extend ApiId=tostring(column_ifexists("ApiId", "")),
-         OperationId=tostring(column_ifexists("OperationId", "")),
-         ResponseCode=toint(column_ifexists("ResponseCode", 0)),
-         TotalTime=tolong(column_ifexists("TotalTime", 0)),
-         CorrelationId=tostring(column_ifexists("CorrelationId", ""))
+{_normalized_gateway_sources(table_mode)}
 | where not(has_api_id) or ApiId == api_id
 | where not(has_operation_id) or OperationId == operation_id
 | where not(has_response_category)
     or tostring(ResponseCode) startswith substring(response_category, 0, 1)
 | where not(has_min_duration) or TotalTime >= min_duration_ms
 | where not(has_correlation_id) or CorrelationId == correlation_id
-| project TimeGenerated=column_ifexists("TimeGenerated", datetime(null)),
+| project TimeGenerated,
           ApiId,
           OperationId,
-          Method=tostring(column_ifexists("Method", "")),
+          Method,
           ResponseCode,
           TotalTime,
-          BackendTime=tolong(column_ifexists("BackendTime", 0)),
-          IsRequestSuccess=tobool(column_ifexists("IsRequestSuccess", true)),
-          LastErrorReason=tostring(column_ifexists("LastErrorReason", "")),
-          LastErrorSource=tostring(column_ifexists("LastErrorSource", "")),
-          LastErrorMessage=tostring(column_ifexists("LastErrorMessage", "")),
+          BackendTime,
+          IsRequestSuccess,
+          LastErrorReason,
+          LastErrorSource,
+          LastErrorMessage,
           CorrelationId,
-          Region=tostring(column_ifexists("Region", "")){url_projection}
+          Region,
+          Url=iff(include_urls, tostring(split(Url, "?")[0]), "")
 | order by TimeGenerated desc
 | take limit_value
 """.strip()
     return GatewayLogQuery(
+        definition=GATEWAY_LOG_DETAIL,
         query=f"{declarations}\n{body}",
         timespan=parsed_timespan,
         limit=effective_limit,
         truncated=limit > _MAX_LIMIT,
         mode="detail",
         include_urls=include_urls,
+        tolerated_empty_partial_codes=(
+            _MISSING_TABLE_WARNING_CODES if table_mode == "auto" else frozenset()
+        ),
     )
 
 
 def build_error_summary_query(
     *,
     resource_id: str,
+    table_mode: GatewayLogTableMode = "auto",
     timespan: str = "PT24H",
     top: int = 10,
 ) -> GatewayLogQuery | ToolError:
@@ -164,15 +291,8 @@ def build_error_summary_query(
         f"top_value:long = {effective_top}"
         ");"
     )
-    body = """
-ApiManagementGatewayLogs
-| where _ResourceId =~ resource_id
-| extend TimeGenerated=todatetime(column_ifexists("TimeGenerated", datetime(null))),
-         ApiId=tostring(column_ifexists("ApiId", "")),
-         ResponseCode=toint(column_ifexists("ResponseCode", 0)),
-         IsRequestSuccess=tobool(column_ifexists("IsRequestSuccess", false)),
-         LastErrorReason=tostring(column_ifexists("LastErrorReason", "")),
-         CorrelationId=tostring(column_ifexists("CorrelationId", ""))
+    body = f"""
+{_normalized_gateway_sources(table_mode)}
 | where ResponseCode >= 400 or IsRequestSuccess == false or isnotempty(LastErrorReason)
 | summarize Count=count(),
             FirstSeen=min(TimeGenerated),
@@ -182,17 +302,21 @@ ApiManagementGatewayLogs
 | top top_value by Count desc
 """.strip()
     return GatewayLogQuery(
+        definition=GATEWAY_ERROR_SUMMARY,
         query=f"{declarations}\n{body}",
         timespan=parsed_timespan,
         limit=effective_top,
         truncated=top > _MAX_TOP,
         mode="summary",
+        tolerated_empty_partial_codes=(
+            _MISSING_TABLE_WARNING_CODES if table_mode == "auto" else frozenset()
+        ),
     )
 
 
 def _gateway_log_error(status_code: int, retry_after: int) -> ToolError:
     if status_code == 403:
-        return access_denied("APIM gateway logs in Log Analytics")
+        return access_denied("APIM gateway logs in Log Analytics", "Log Analytics Reader")
     if status_code == 429:
         return throttled(retry_after)
     if status_code == 400:
@@ -241,9 +365,11 @@ class LogsClient:
             self._ctx,
             scope=LOGS_SCOPE,
             workspace_resource_id=workspace_resource_id,
+            definition=query.definition,
             query=query.query,
             timespan=query.timespan,
             on_status=_gateway_log_error,
+            tolerated_empty_partial_codes=query.tolerated_empty_partial_codes,
         )
         if isinstance(result, ToolError):
             return result

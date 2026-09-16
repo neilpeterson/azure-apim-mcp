@@ -108,11 +108,12 @@ configured by the server operator, such as `prod`.
 | `apim_summarize_errors` | Gateway failures grouped by API, error reason, and response code |
 
 Telemetry requires each existing APIM service to already route `AllMetrics`
-to the configured Log Analytics workspace and populate the resource-specific
-`ApiManagementGatewayLogs` table. This repository does not modify APIM
-diagnostic settings. Metric dimensions are not available through the
-diagnostic export; use the gateway-log tools for API, operation, response-code,
-and error breakdowns.
+to the configured Log Analytics workspace. Gateway logs can use either the
+resource-specific `ApiManagementGatewayLogs` table or legacy `GatewayLogs`
+records in `AzureDiagnostics`. This repository does not modify APIM diagnostic
+settings. Metric dimensions are not available through the diagnostic export;
+use the gateway-log tools for API, operation, response-code, and error
+breakdowns.
 
 The implemented tool list evolves with `docs/development/TASKS.md`; clients discover the
 currently registered set directly from the server.
@@ -161,6 +162,7 @@ currently registered set directly from the server.
 - [Principles](docs/development/PRINCIPLES.md) — non-negotiable security and design rules
 - [Technical specification](docs/development/SPEC.md)
 - [Implementation tasks](docs/development/TASKS.md)
+- [Log Analytics query catalog](docs/development/QUERY_CATALOG.md)
 - [Local testing and fixtures](docs/development/LOCAL_TESTING.md)
 
 ### Operations

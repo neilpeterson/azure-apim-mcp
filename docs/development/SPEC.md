@@ -291,10 +291,11 @@ All configuration via environment variables, validated with a Pydantic `Settings
 | `MCP_SERVER_AUDIENCE` | yes | The server's Application ID URI (§4.3) — a URL, e.g. `http://localhost:8000/mcp` locally or `https://<app>.<region>.azurecontainerapps.io/mcp` deployed. Not an `api://` string. Used for the `resource` field and to derive `<audience>/Mcp.Tools.Read` in `/.well-known/oauth-protected-resource`. |
 | `MCP_SERVER_APP_ID` | yes | The server app registration's Application (client) ID (a GUID). Entra v2 tokens always set `aud` to the app ID, not the Application ID URI — the middleware validates `aud` against this value. |
 | `MCP_REQUIRED_ROLE` | yes | default `Apim.Read` |
-| `APIM_SERVICES` | yes | JSON array of `{alias, resourceId, logAnalyticsWorkspaceId?}` |
+| `APIM_SERVICES` | yes | JSON array of `{alias, resourceId, logAnalyticsWorkspaceId?, gatewayLogTableMode?}`; mode is `auto` (default), `resourceSpecific`, or `azureDiagnostics` |
 | `INDEX_TTL_SECONDS` | no | default `900` |
 | `INDEX_MAX_CONCURRENCY` | no | default `8` |
 | `MAX_RESPONSE_BYTES` | no | default `48000` |
+| `APIM_MCP_LOG_LEVEL` | no | `DEBUG`, `INFO`, `WARNING`, or `ERROR`; default `INFO`. `DEBUG` logs fixed KQL query bodies without bound parameter values. |
 | `APPLICATIONINSIGHTS_CONNECTION_STRING` | yes | |
 
 `APIM_SERVICES` is the authoritative allowlist. The server will not touch an instance not listed there, regardless of what the managed identity could reach. Example:
@@ -302,7 +303,8 @@ All configuration via environment variables, validated with a Pydantic `Settings
 ```json
 [
   {"alias": "prod",    "resourceId": "/subscriptions/.../providers/Microsoft.ApiManagement/service/apim-prod",
-   "logAnalyticsWorkspaceId": "/subscriptions/.../workspaces/law-apim-prod"},
+   "logAnalyticsWorkspaceId": "/subscriptions/.../workspaces/law-apim-prod",
+   "gatewayLogTableMode": "azureDiagnostics"},
   {"alias": "nonprod", "resourceId": "/subscriptions/.../providers/Microsoft.ApiManagement/service/apim-nonprod",
    "logAnalyticsWorkspaceId": "/subscriptions/.../workspaces/law-apim-nonprod"}
 ]
@@ -452,6 +454,10 @@ Standard list tools. Backends: return `url`, `protocol`, `title`, `description`,
 
 ### Group D — Telemetry
 
+Every Log Analytics execution must use a registered definition from
+`src/apim_mcp/queries/catalog.py`. The maintained inventory and add, update,
+and removal workflow are documented in `docs/development/QUERY_CATALOG.md`.
+
 #### `apim_get_metrics`
 - Params: `service`, `metric: Literal[...]`, `timespan: str = "PT1H"` (ISO 8601 duration or `start/end`), `interval: str = "PT5M"`, `aggregation`, `filter: str | None`, `response_format`
 - Source: the fixed `AzureMetrics` Log Analytics table populated by each
@@ -483,14 +489,27 @@ Parameterized, **not** free-form KQL. This is deliberate: the managed identity c
   - `limit: int = 50` (hard max 200)
   - `include_urls: bool = False`
   - `response_format`
-- Builds a KQL query over `ApiManagementGatewayLogs` with all user input passed as **bound query parameters via a `declare query_parameters` preamble** — never string-interpolated. String interpolation here is a KQL injection hole that lets a prompt-injected model pivot to other tables in the workspace.
+- Builds a KQL query over the fixed APIM gateway-log tables
+  `ApiManagementGatewayLogs` and `AzureDiagnostics`, normalizing both to one
+  output shape without heuristic cross-table deduplication, which could
+  collapse distinct requests when identifying fields are absent. All user
+  input is passed as **bound query parameters via a
+  `declare query_parameters` preamble** — never string-interpolated. String
+  interpolation here is a KQL injection hole that lets a prompt-injected
+  model pivot to other tables in the workspace.
 - Returns: `TimeGenerated`, `ApiId`, `OperationId`, `Method`, `ResponseCode`, `TotalTime`, `BackendTime`, `IsRequestSuccess`, `LastErrorReason`, `LastErrorSource`, `LastErrorMessage`, `CorrelationId`, `Region`.
-- **`Url` is omitted by default.** Query strings routinely carry tokens, keys, and PII. Only include when `include_urls=True`, and strip the query string component even then.
-- Pin the column list against Microsoft Learn's generated
-  `ApiManagementGatewayLogs` table reference and use `column_ifexists` for
-  every projected field so an older workspace schema degrades to empty values
-  rather than failing the tool. Validate with `getschema` against the deployed
-  workspace when available.
+- **`Url` is omitted by default.** Query strings routinely carry tokens, keys,
+  and PII. Only include when `include_urls=True`; strip the query string in
+  the final KQL projection before results leave Log Analytics, then strip it
+  again in Python as defense in depth.
+- Pin the resource-specific column list against Microsoft Learn's generated
+  `ApiManagementGatewayLogs` table reference. For legacy `AzureDiagnostics`,
+  use the APIM `GatewayLogs` columns and strictly allowlisted fallbacks from
+  `AdditionalFields`. Use `column_ifexists` for every projected field so an
+  older workspace schema degrades to empty values rather than failing the
+  tool. Repository tests cannot call live Azure or prove a workspace's
+  runtime schema; validate with `getschema` against the deployed workspace
+  when available and record verified differences in the runbook.
 
 #### `apim_summarize_errors`
 Workflow tool. One call replaces the five the model would otherwise make.
@@ -593,7 +612,7 @@ Errors are returned **inside the tool result**, never raised as protocol errors.
 
 | `kind` | HTTP trigger | Message pattern |
 |---|---|---|
-| `access_denied` | 403 | "The server's identity lacks permission to read {resource}. This is a configuration issue, not a user permission issue." |
+| `access_denied` | 403 | Name the downstream Azure identity: the active `az login` identity locally or the Container App managed identity when deployed. Identify the required Azure RBAC role. |
 | `not_found` | 404 | "No {resource type} named '{id}' on service '{service}'. Use `apim_list_apis` to see available IDs." |
 | `throttled` | 429 | "Azure Resource Manager is throttling requests. Retry in {Retry-After}s." |
 | `timeout` | — | "Query exceeded the time budget. Narrow `timespan` or lower `limit`." |
@@ -601,7 +620,15 @@ Errors are returned **inside the tool result**, never raised as protocol errors.
 | `upstream_error` | 5xx | Generic; log detail server-side, do not surface internals. |
 | `index_unavailable` | — | "The API index is still building. Retry in ~30s." |
 
-Note the `access_denied` wording. Under v1 a 403 genuinely *is* a server misconfiguration, and saying so stops the model telling the user "you don't have permission" when the user has nothing to do with it. **Under OBO this message must change** — flag it in the retrofit checklist.
+Note the `access_denied` wording. When local v1 execution opts into
+`APIM_MCP_LOCAL_DEV_CREDENTIAL=1`, downstream calls use the active `az login`
+identity, so the developer's Azure RBAC is relevant. Otherwise v1 uses the
+configured managed identity; in the deployed Container App, that identity's
+Azure RBAC is the configuration boundary. The message names the selected
+identity mode and the exact built-in role required at the resource scope.
+**Under OBO this message must change again** because the MCP caller's
+delegated Azure permissions become the boundary — flag it in the retrofit
+checklist.
 
 ### 8.2 Redaction
 

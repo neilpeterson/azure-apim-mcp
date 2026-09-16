@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import re
 from ipaddress import ip_address
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import urlsplit
 
 from pydantic import BaseModel, Field, ValidationError, field_validator
@@ -65,6 +65,9 @@ class ApimServiceConfig(BaseModel):
     log_analytics_workspace_id: str | None = Field(
         default=None, validation_alias="logAnalyticsWorkspaceId"
     )
+    gateway_log_table_mode: Literal["auto", "resourceSpecific", "azureDiagnostics"] = Field(
+        default="auto", validation_alias="gatewayLogTableMode"
+    )
 
     @field_validator("resource_id")
     @classmethod
@@ -93,6 +96,7 @@ class Settings(BaseSettings):
     index_ttl_seconds: int = 900
     index_max_concurrency: int = 8
     max_response_bytes: int = 48000
+    apim_mcp_log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
     applicationinsights_connection_string: str
 
     @field_validator("mcp_server_audience")
@@ -134,6 +138,16 @@ class Settings(BaseSettings):
                 "docs/development/SPEC.md §4.3"
             )
         return stripped
+
+    @field_validator("apim_mcp_log_level", mode="before")
+    @classmethod
+    def _check_log_level(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            normalized = value.upper()
+            if normalized not in {"DEBUG", "INFO", "WARNING", "ERROR"}:
+                raise ValueError("APIM_MCP_LOG_LEVEL must be DEBUG, INFO, WARNING, or ERROR")
+            return normalized
+        return value
 
     @field_validator("apim_services", mode="before")
     @classmethod

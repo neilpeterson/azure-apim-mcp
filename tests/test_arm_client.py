@@ -172,6 +172,27 @@ async def test_403_returns_access_denied() -> None:
 
     assert isinstance(result, ToolError)
     assert result.kind == "access_denied"
+    assert "API Management Service Reader Role" in result.message
+
+
+async def test_workspace_403_names_log_analytics_reader() -> None:
+    workspace_id = (
+        "/subscriptions/00000000-0000-0000-0000-000000000000"
+        "/resourceGroups/rg-fixture"
+        "/providers/Microsoft.OperationalInsights/workspaces/law-fixture"
+    )
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(403)
+
+    result = await ArmClient(
+        CallContext(oid="oid", upn="u@example.com", roles=(), bearer_token="token"),
+        transport=httpx.MockTransport(handler),
+    ).get(workspace_id)
+
+    assert isinstance(result, ToolError)
+    assert result.kind == "access_denied"
+    assert "Log Analytics Reader" in result.message
 
 
 async def test_5xx_becomes_upstream_error_after_retries_exhausted(
