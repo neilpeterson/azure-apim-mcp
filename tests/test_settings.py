@@ -59,6 +59,7 @@ def _set_env(monkeypatch: pytest.MonkeyPatch, overrides: dict[str, str] | None =
         "INDEX_TTL_SECONDS",
         "INDEX_MAX_CONCURRENCY",
         "MAX_RESPONSE_BYTES",
+        "APIM_MCP_LOG_LEVEL",
     ):
         monkeypatch.delenv(key, raising=False)
     if overrides:
@@ -74,7 +75,21 @@ def test_valid_environment_loads_settings(monkeypatch: pytest.MonkeyPatch) -> No
     assert settings.index_ttl_seconds == 900
     assert settings.index_max_concurrency == 8
     assert settings.max_response_bytes == 48000
+    assert settings.apim_mcp_log_level == "INFO"
     assert [s.alias for s in settings.apim_services] == ["prod", "nonprod"]
+
+
+def test_log_level_accepts_supported_value(monkeypatch: pytest.MonkeyPatch) -> None:
+    _set_env(monkeypatch, {"APIM_MCP_LOG_LEVEL": "DEBUG"})
+
+    assert get_settings().apim_mcp_log_level == "DEBUG"
+
+
+def test_log_level_rejects_unsupported_value(monkeypatch: pytest.MonkeyPatch) -> None:
+    _set_env(monkeypatch, {"APIM_MCP_LOG_LEVEL": "TRACE"})
+
+    with pytest.raises(SettingsError, match="APIM_MCP_LOG_LEVEL"):
+        get_settings()
 
 
 def test_missing_required_var_raises_with_name_in_message(
@@ -130,8 +145,50 @@ def test_apim_services_json_parses(monkeypatch: pytest.MonkeyPatch) -> None:
     assert prod.resource_id.endswith("/service/apim-fixture")
     assert prod.log_analytics_workspace_id is not None
     assert prod.log_analytics_workspace_id.endswith("/workspaces/law-fixture")
+    assert prod.gateway_log_table_mode == "auto"
     # optional field omitted in the second entry
     assert settings.apim_services[1].log_analytics_workspace_id is None
+
+
+def test_gateway_log_table_mode_parses(monkeypatch: pytest.MonkeyPatch) -> None:
+    services = json.dumps(
+        [
+            {
+                "alias": "prod",
+                "resourceId": (
+                    "/subscriptions/00000000-0000-0000-0000-000000000000"
+                    "/resourceGroups/rg-fixture"
+                    "/providers/Microsoft.ApiManagement/service/apim-fixture"
+                ),
+                "gatewayLogTableMode": "azureDiagnostics",
+            }
+        ]
+    )
+    _set_env(monkeypatch, {"APIM_SERVICES": services})
+
+    assert get_settings().apim_services[0].gateway_log_table_mode == "azureDiagnostics"
+
+
+def test_gateway_log_table_mode_rejects_unknown_value(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    services = json.dumps(
+        [
+            {
+                "alias": "prod",
+                "resourceId": (
+                    "/subscriptions/00000000-0000-0000-0000-000000000000"
+                    "/resourceGroups/rg-fixture"
+                    "/providers/Microsoft.ApiManagement/service/apim-fixture"
+                ),
+                "gatewayLogTableMode": "anything",
+            }
+        ]
+    )
+    _set_env(monkeypatch, {"APIM_SERVICES": services})
+
+    with pytest.raises(SettingsError, match="gatewayLogTableMode"):
+        get_settings()
 
 
 def test_apim_services_malformed_json_gives_readable_error(

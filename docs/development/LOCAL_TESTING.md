@@ -37,6 +37,12 @@ Python, not the shell. `.env` is already listed in `.gitignore`, so it can
 never be committed by accident. A real exported/`$env:` variable still wins
 over anything in `.env` (`load_dotenv()` defaults to `override=False`).
 
+Set `APIM_MCP_LOG_LEVEL=DEBUG` temporarily when troubleshooting an upstream
+Azure or Log Analytics failure. Log Analytics failures include safe status,
+error-code, request-correlation, and query-fingerprint metadata. At `DEBUG`,
+the server also logs the fixed KQL body without bound resource IDs or tool
+parameter values. The model-facing tool result remains generic.
+
 See [`DEPLOYMENT.md`](../operations/DEPLOYMENT.md) for the full environment variable reference and
 what each one does.
 

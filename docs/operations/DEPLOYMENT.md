@@ -249,6 +249,7 @@ param apimServices = [
     alias: 'prod'
     resourceId: '/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.ApiManagement/service/<name>'
     logAnalyticsWorkspaceId: '/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.OperationalInsights/workspaces/<workspace>'
+    gatewayLogTableMode: 'azureDiagnostics'
   }
 ]
 ```
@@ -263,8 +264,10 @@ deployment starts.
 - the source for the per-resource RBAC assignments.
 
 Each `alias` is the friendly value clients pass to tools, such as
-`service="prod"`. Omit `logAnalyticsWorkspaceId` when gateway-log access is
-not needed for that instance.
+`service="prod"`. Omit `logAnalyticsWorkspaceId` when telemetry access is not
+needed for that instance. Set `gatewayLogTableMode` to `azureDiagnostics` or
+`resourceSpecific` when the diagnostic destination is known; omit it to use
+automatic dual-table support.
 
 The template assigns:
 
@@ -405,6 +408,7 @@ The template sets these application environment variables:
 | `MCP_SERVER_AUDIENCE` | generated Container App URL plus `/mcp` |
 | `MCP_SERVER_APP_ID` | `mcpServerAppId` parameter |
 | `MCP_REQUIRED_ROLE` | `mcpRequiredRole` parameter |
+| `APIM_MCP_LOG_LEVEL` | `apimMcpLogLevel` parameter; default `INFO`, use `DEBUG` temporarily for safe fixed-KQL diagnostics |
 | `APIM_SERVICES` | `apimServices` parameter |
 | `APPLICATIONINSIGHTS_CONNECTION_STRING` | generated Application Insights resource |
 

@@ -75,9 +75,12 @@ def register_telemetry_tools(
         config = resolve_service(settings, service)
         if isinstance(config, ToolError):
             return config
+        workspace_id = require_workspace(config)
+        if isinstance(workspace_id, ToolError):
+            return workspace_id
         result = await MetricsClient(ctx).query(
             config.resource_id,
-            config.log_analytics_workspace_id,
+            workspace_id,
             metric=metric,
             timespan=timespan,
             interval=interval,
@@ -113,13 +116,16 @@ def register_telemetry_tools(
         include_urls: bool = False,
         response_format: ResponseFormat = "markdown",
     ) -> dict[str, Any] | ToolError:
-        """Query the fixed `ApiManagementGatewayLogs` table.
+        """Query the fixed APIM gateway-log tables.
 
-        Filters are limited to API, operation, response-code category,
-        minimum duration, and correlation ID. Returns request timing,
-        outcome, error, correlation, and region fields. Never returns
-        request/response bodies or headers. `Url` is omitted unless
-        `include_urls=true`, and its query string is always removed.
+        Supports both `ApiManagementGatewayLogs` and legacy
+        `AzureDiagnostics` `GatewayLogs` records, normalizes them to one
+        output shape, and returns matching records independently from either
+        table. Filters are limited to API, operation, response-code category,
+        minimum duration, and correlation ID. Returns request timing, outcome,
+        error, correlation, and region fields. Never returns request/response
+        bodies or headers. `Url` is omitted unless `include_urls=true`, and
+        its query string is always removed.
         """
         config = resolve_service(settings, service)
         if isinstance(config, ToolError):
@@ -129,6 +135,7 @@ def register_telemetry_tools(
             return workspace_id
         query = build_gateway_log_query(
             resource_id=config.resource_id,
+            table_mode=config.gateway_log_table_mode,
             timespan=timespan,
             api_id=api_id,
             operation_id=operation_id,
@@ -160,10 +167,14 @@ def register_telemetry_tools(
         top: int = 10,
         response_format: ResponseFormat = "markdown",
     ) -> dict[str, Any] | ToolError:
-        """Summarize APIM gateway failures by API, last-error reason, and
-        response code, including count, first/last seen, and one
-        representative correlation ID. Never returns request/response
-        bodies, headers, URLs, or credentials.
+        """Summarize failures from the fixed APIM gateway-log tables.
+
+        Supports both `ApiManagementGatewayLogs` and legacy
+        `AzureDiagnostics` `GatewayLogs` records, normalizes them to one
+        shape, and groups failures by API, last-error reason, and response
+        code. Returns counts, first/last seen, and one representative
+        correlation ID. Never returns request/response bodies, headers, URLs,
+        or credentials.
         """
         config = resolve_service(settings, service)
         if isinstance(config, ToolError):
@@ -173,6 +184,7 @@ def register_telemetry_tools(
             return workspace_id
         query = build_error_summary_query(
             resource_id=config.resource_id,
+            table_mode=config.gateway_log_table_mode,
             timespan=timespan,
             top=top,
         )

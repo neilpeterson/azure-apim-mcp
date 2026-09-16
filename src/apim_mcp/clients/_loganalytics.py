@@ -22,9 +22,11 @@ differs between them and must keep differing:
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
+import logging
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -37,6 +39,7 @@ from apim_mcp.auth.context import CallContext
 from apim_mcp.auth.credentials import credential_for
 from apim_mcp.clients.arm import ArmClient
 from apim_mcp.common.errors import ToolError, timeout, upstream_error
+from apim_mcp.queries.catalog import QUERY_BY_ID, QueryDefinition
 
 Timespan = timedelta | tuple[datetime, datetime]
 """An Azure Monitor query window: a duration, or an explicit start/end pair."""
@@ -45,6 +48,7 @@ StatusErrorMapper = Callable[[int, int], ToolError]
 """Maps ``(status_code, retry_after_seconds)`` to a domain-specific error."""
 
 WORKSPACE_API_VERSION = "2023-09-01"
+logger = logging.getLogger("apim_mcp.loganalytics")
 
 # The client budget sits above the server budget so Log Analytics gets the
 # chance to return a *partial* result before the client gives up entirely.
@@ -93,7 +97,10 @@ def parse_timespan(value: str) -> Timespan:
 
 def parse_interval(value: str) -> timedelta:
     """Parse a query granularity as a positive ISO 8601 duration."""
-    return _parse_duration(value)
+    duration = _parse_duration(value)
+    if duration < timedelta(seconds=1) or not duration.total_seconds().is_integer():
+        raise ValueError("interval must be at least one second and use whole seconds")
+    return duration
 
 
 def kql_string(value: str) -> str:
@@ -154,6 +161,102 @@ class WorkspaceRows:
     partial: bool
 
 
+def _query_body(query: str) -> str:
+    """Return the fixed KQL body without parameter values."""
+    declaration, separator, body = query.partition("\n")
+    if (
+        not separator
+        or not declaration.startswith("declare query_parameters(")
+        or not declaration.endswith(");")
+        or "declare query_parameters(" in body
+    ):
+        return "<query body unavailable: unrecognized declaration shape>"
+    return body
+
+
+def _query_fingerprint(query: str) -> str:
+    return hashlib.sha256(_query_body(query).encode()).hexdigest()[:16]
+
+
+def _error_codes(error: Any) -> set[str]:
+    """Collect machine-readable error codes without reading messages."""
+    codes: set[str] = set()
+    pending = [error]
+    while pending:
+        current = pending.pop()
+        if current is None:
+            continue
+        if isinstance(current, Mapping):
+            code = current.get("code")
+            details = current.get("details")
+            inner_error = current.get("innererror") or current.get("innerError")
+        else:
+            code = getattr(current, "code", None)
+            details = getattr(current, "details", None)
+            inner_error = getattr(current, "innererror", None) or getattr(
+                current, "inner_error", None
+            )
+        if code is not None:
+            codes.add(str(code))
+        if isinstance(details, list):
+            pending.extend(details)
+        if inner_error is not None:
+            pending.append(inner_error)
+    return codes
+
+
+def _empty_partial_is_tolerated(
+    partial_error: Any,
+    tolerated_codes: frozenset[str],
+) -> bool:
+    """Return whether an empty partial result contains only an allowed warning."""
+    codes = _error_codes(partial_error)
+    specific_codes = codes - {"PartialError", "PartialQueryFailure"}
+    return bool(specific_codes) and specific_codes <= tolerated_codes
+
+
+def _log_http_error(
+    error: HttpResponseError,
+    query: str,
+    *,
+    query_id: str,
+) -> None:
+    """Log safe correlation metadata and, at DEBUG, the fixed query shape."""
+    headers = getattr(error.response, "headers", {}) if error.response else {}
+    error_code = getattr(error.error, "code", None)
+    fingerprint = _query_fingerprint(query)
+    logger.warning(
+        (
+            "Log Analytics query failed: query_id=%s status=%s code=%s "
+            "request_id=%s correlation_request_id=%s query_sha256=%s"
+        ),
+        query_id,
+        error.status_code,
+        error_code,
+        headers.get("x-ms-request-id"),
+        headers.get("x-ms-correlation-request-id"),
+        fingerprint,
+    )
+    logger.debug("Log Analytics fixed query body [%s]:\n%s", fingerprint, _query_body(query))
+
+
+def _log_partial_error(
+    partial_error: Any,
+    query: str,
+    *,
+    query_id: str,
+) -> None:
+    """Log only the partial error code; messages and details may contain data."""
+    fingerprint = _query_fingerprint(query)
+    logger.warning(
+        "Log Analytics query returned partial error: query_id=%s code=%s query_sha256=%s",
+        query_id,
+        getattr(partial_error, "code", None),
+        fingerprint,
+    )
+    logger.debug("Log Analytics fixed query body [%s]:\n%s", fingerprint, _query_body(query))
+
+
 async def _resolve_workspace_id(
     ctx: CallContext,
     workspace_resource_id: str,
@@ -179,9 +282,11 @@ async def run_workspace_query(
     *,
     scope: str,
     workspace_resource_id: str,
+    definition: QueryDefinition,
     query: str,
     timespan: Timespan,
     on_status: StatusErrorMapper,
+    tolerated_empty_partial_codes: frozenset[str] = frozenset(),
 ) -> WorkspaceRows | ToolError:
     """Run one query against a workspace and decode its rows.
 
@@ -190,6 +295,10 @@ async def run_workspace_query(
     (`docs/development/PRINCIPLES.md` §7). `scope` is required, not defaulted,
     for the same reason (§2).
     """
+    if QUERY_BY_ID.get(definition.id) is not definition:
+        return upstream_error(
+            log_detail=f"Unregistered Log Analytics query definition: {definition.id}"
+        )
     try:
         async with asyncio.timeout(_CLIENT_TIMEOUT_SECONDS):
             workspace_id = await _resolve_workspace_id(ctx, workspace_resource_id)
@@ -204,6 +313,7 @@ async def run_workspace_query(
                     server_timeout=_SERVER_TIMEOUT_SECONDS,
                 )
     except HttpResponseError as exc:
+        _log_http_error(exc, query, query_id=definition.id)
         headers = getattr(exc.response, "headers", {}) if exc.response else {}
         return on_status(exc.status_code or 500, retry_after_seconds(headers))
     except (TimeoutError, httpx.TimeoutException, ServiceRequestError, ServiceResponseError):
@@ -211,6 +321,20 @@ async def run_workspace_query(
 
     rows = table_rows(result)
     partial = has_partial_error(result)
+    partial_error = getattr(result, "partial_error", None)
+    if partial_error is not None:
+        _log_partial_error(partial_error, query, query_id=definition.id)
     if partial and not rows:
-        return timeout()
+        if _empty_partial_is_tolerated(partial_error, tolerated_empty_partial_codes):
+            return WorkspaceRows(rows=[], partial=False)
+        error_codes = _error_codes(partial_error)
+        if any("timeout" in code.lower() for code in error_codes):
+            return timeout()
+        return upstream_error(
+            log_detail=(
+                "Log Analytics partial query failed: "
+                f"codes={sorted(error_codes)} "
+                f"query_sha256={_query_fingerprint(query)}"
+            )
+        )
     return WorkspaceRows(rows=rows, partial=partial)

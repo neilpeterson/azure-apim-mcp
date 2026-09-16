@@ -29,7 +29,11 @@ from _mcp_harness import (
 )
 from apim_mcp.auth.context import CallContext
 from apim_mcp.clients._loganalytics import parse_interval, parse_timespan
-from apim_mcp.clients.metrics import MetricsClient, probe_metric_availability
+from apim_mcp.clients.metrics import (
+    MetricAggregation,
+    MetricsClient,
+    probe_metric_availability,
+)
 from apim_mcp.common.errors import ToolError
 from apim_mcp.server import ToolRegistration, create_mcp, wrap_with_middleware
 from apim_mcp.settings import ApimServiceConfig, Settings
@@ -128,6 +132,26 @@ class _PartialLogsClient(_FakeLogsClient):
         return _FakeLogsResult(partial=True)
 
 
+class _PartialNoRowsLogsClient(_FakeLogsClient):
+    timeout = False
+
+    async def query_workspace(self, workspace_id: str, query: str, **kwargs: Any) -> Any:
+        details = [{"code": "QueryTimeout"}] if self.timeout else [{"code": "SemanticError"}]
+        return type(
+            "_PartialNoRowsResult",
+            (),
+            {
+                "tables": [],
+                "partial_data": [],
+                "partial_error": type(
+                    "_PartialError",
+                    (),
+                    {"code": "PartialError", "details": details},
+                )(),
+            },
+        )()
+
+
 def _settings() -> Settings:
     return _base_settings(
         services=[
@@ -138,6 +162,10 @@ def _settings() -> Settings:
             )
         ]
     )
+
+
+def _settings_without_workspace() -> Settings:
+    return _base_settings(services=[ApimServiceConfig(alias="prod", resource_id=RESOURCE_ID)])
 
 
 def _call_tool(client: TestClient, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
@@ -177,6 +205,12 @@ def test_timespan_accepts_duration_and_start_end() -> None:
 def test_invalid_timespan_is_rejected(value: str) -> None:
     with pytest.raises(ValueError):
         parse_timespan(value)
+
+
+@pytest.mark.parametrize("value", ["PT0.5S", "PT1.5S"])
+def test_fractional_second_interval_is_rejected(value: str) -> None:
+    with pytest.raises(ValueError, match="at least one second"):
+        parse_interval(value)
 
 
 async def test_dimension_filter_rejected_with_gateway_log_hint(
@@ -221,12 +255,49 @@ async def test_interval_is_bound_and_average_is_weighted(
     query = _FakeLogsClient.last_query["query"]
     declaration, body = query.split(");", 1)
     assert "interval:timespan = time(0.00:05:00)" in declaration
+    assert 'aggregation:string = "average"' in declaration
     assert "0.00:05:00" not in body
     assert RESOURCE_ID not in body
     assert "Capacity" not in body
-    assert "sum(Total) / sum(Count)" in body
+    assert "AverageNumerator=sumif(Average * Count, isnotnull(Average))" in body
+    assert "AverageSampleCount=sumif(Count, isnotnull(Average))" in body
+    assert "AverageNumerator / AverageSampleCount" in body
+    assert "TotalValue / CountValue" in body
+    assert "sum(Total) / sum(Count)" not in body
     assert _FakeLogsClient.last_query["timespan"] == timedelta(hours=1)
     assert _FakeLogsClient.last_query["server_timeout"] == 50
+
+
+async def test_aggregation_is_bound_without_changing_query_shape(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_clients(monkeypatch)
+    ctx = CallContext(oid="oid", upn="u@example.com", roles=(), bearer_token="token")
+    bodies: list[str] = []
+    aggregations: tuple[MetricAggregation, ...] = (
+        "average",
+        "minimum",
+        "maximum",
+        "total",
+        "count",
+    )
+
+    for aggregation in aggregations:
+        result = await MetricsClient(ctx).query(
+            RESOURCE_ID,
+            WORKSPACE_ID,
+            metric="Capacity",
+            timespan="PT1H",
+            interval="PT5M",
+            aggregation=aggregation,
+        )
+        assert not isinstance(result, ToolError)
+        assert _FakeLogsClient.last_query is not None
+        declaration, body = _FakeLogsClient.last_query["query"].split(");", 1)
+        assert f'aggregation:string = "{aggregation}"' in declaration
+        bodies.append(body)
+
+    assert len(set(bodies)) == 1
 
 
 def test_deprecated_metric_names_rejected_with_replacement(
@@ -253,6 +324,33 @@ def test_deprecated_metric_names_rejected_with_replacement(
     assert payload["error"]["kind"] == "invalid_input"
     assert "Requests" in payload["error"]["message"]
     assert "apim_query_gateway_logs" in payload["error"]["message"]
+
+
+def test_metrics_missing_workspace_names_server_configuration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = _settings_without_workspace()
+    mcp = create_mcp(settings, allowed_hosts=["testserver"])
+    registry: list[ToolRegistration] = []
+    register_telemetry_tools(mcp, registry, settings)
+    app = wrap_with_middleware(mcp, settings, jwks_cache=_jwks_cache())
+
+    with TestClient(app) as client:
+        payload = _call_tool(
+            client,
+            "apim_get_metrics",
+            {
+                "service": "prod",
+                "metric": "Capacity",
+                "response_format": "json",
+            },
+        )
+
+    assert payload["error"]["message"] == (
+        "Log Analytics is not mapped for service 'prod' in the MCP server's "
+        "`APIM_SERVICES` configuration. Add `logAnalyticsWorkspaceId` with the "
+        "workspace ARM resource ID; Azure diagnostic settings are not auto-discovered."
+    )
 
 
 async def test_metric_definitions_probe_logs_available_metrics(
@@ -336,3 +434,36 @@ async def test_metric_partial_rows_are_returned_and_marked_truncated(
     assert result["items"]
     assert result["partial"] is True
     assert result["truncated"] is True
+
+
+@pytest.mark.parametrize(
+    ("is_timeout", "expected_kind"),
+    [
+        (True, "timeout"),
+        (False, "upstream_error"),
+    ],
+)
+async def test_metric_partial_failure_without_rows_is_classified(
+    monkeypatch: pytest.MonkeyPatch,
+    is_timeout: bool,
+    expected_kind: str,
+) -> None:
+    _patch_clients(monkeypatch)
+    _PartialNoRowsLogsClient.timeout = is_timeout
+    monkeypatch.setattr(
+        "apim_mcp.clients._loganalytics.LogsQueryClient",
+        _PartialNoRowsLogsClient,
+    )
+    ctx = CallContext(oid="oid", upn="u@example.com", roles=(), bearer_token="token")
+
+    result = await MetricsClient(ctx).query(
+        RESOURCE_ID,
+        WORKSPACE_ID,
+        metric="Capacity",
+        timespan="PT1H",
+        interval="PT5M",
+        aggregation="average",
+    )
+
+    assert isinstance(result, ToolError)
+    assert result.kind == expected_kind

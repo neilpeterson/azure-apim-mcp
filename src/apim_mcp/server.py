@@ -42,7 +42,12 @@ from apim_mcp.auth.middleware import (
 )
 from apim_mcp.common.errors import ToolError, error_envelope, upstream_error
 from apim_mcp.common.formatting import ResponseFormat, render
-from apim_mcp.common.telemetry import AuditEvent, emit_audit_event, run_permission_canary
+from apim_mcp.common.telemetry import (
+    AUDIT_LOGGER_NAME,
+    AuditEvent,
+    emit_audit_event,
+    run_permission_canary,
+)
 from apim_mcp.index.search import IndexManager
 from apim_mcp.settings import Settings, get_settings
 
@@ -61,6 +66,12 @@ _TOOL_ANNOTATIONS = ToolAnnotations(
 
 
 type ToolRegistration = str
+
+
+def _configure_logging(level: str) -> None:
+    """Set application verbosity without suppressing mandatory audit events."""
+    logging.getLogger("apim_mcp").setLevel(level)
+    logging.getLogger(AUDIT_LOGGER_NAME).setLevel(logging.INFO)
 
 
 def current_call_context() -> CallContext:
@@ -437,11 +448,17 @@ def main() -> None:
     from azure.monitor.opentelemetry import configure_azure_monitor
 
     settings = get_settings()
+    _configure_logging(settings.apim_mcp_log_level)
     configure_azure_monitor(
         connection_string=settings.applicationinsights_connection_string,
     )
     app = create_app(settings=settings)
-    uvicorn.run(app, host="0.0.0.0", port=8000)  # noqa: S104
+    uvicorn.run(
+        app,
+        host="0.0.0.0",  # noqa: S104
+        port=8000,
+        log_level=settings.apim_mcp_log_level.lower(),
+    )
 
 
 if __name__ == "__main__":

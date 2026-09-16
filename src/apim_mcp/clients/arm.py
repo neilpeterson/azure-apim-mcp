@@ -82,7 +82,12 @@ def _map_error(response: httpx.Response, *, resource_id: str) -> ToolError:
     if status == 400:
         return invalid_input("resource_id or params", "a well-formed ARM resource ID")
     if status == 403:
-        return access_denied(resource_id)
+        required_role = (
+            "Log Analytics Reader"
+            if "/providers/microsoft.operationalinsights/workspaces/" in resource_id.lower()
+            else "API Management Service Reader Role"
+        )
+        return access_denied(resource_id, required_role)
     if status == 404:
         return not_found("resource", resource_id, "unknown")
     if status == 429:

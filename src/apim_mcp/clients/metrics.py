@@ -31,6 +31,7 @@ from apim_mcp.common.errors import (
     throttled,
     upstream_error,
 )
+from apim_mcp.queries.catalog import METRIC_DEFINITIONS, METRIC_TIMESERIES
 from apim_mcp.settings import ApimServiceConfig
 
 MetricAggregation = Literal["average", "minimum", "maximum", "total", "count"]
@@ -43,13 +44,6 @@ DEPRECATED_METRICS = frozenset({"TotalRequests", "SuccessfulRequests", "FailedRe
 logger = logging.getLogger("apim_mcp.metrics")
 
 _DEFINITIONS_TIMESPAN = parse_timespan("P1D")
-_AGGREGATION_EXPRESSION = {
-    "average": "sum(Total) / sum(Count)",
-    "minimum": "min(Minimum)",
-    "maximum": "max(Maximum)",
-    "total": "sum(Total)",
-    "count": "sum(Count)",
-}
 _NO_WORKSPACE = ("service", "a configured service with logAnalyticsWorkspaceId for telemetry")
 
 
@@ -69,7 +63,7 @@ def validate_metric_name(metric: str) -> ToolError | None:
 
 def _metric_query_error(status_code: int, retry_after: int) -> ToolError:
     if status_code == 403:
-        return access_denied("APIM metrics in Log Analytics")
+        return access_denied("APIM metrics in Log Analytics", "Log Analytics Reader")
     if status_code == 429:
         return throttled(retry_after)
     if status_code == 400:
@@ -120,17 +114,36 @@ class MetricsClient:
             "declare query_parameters("
             f"resource_id:string = {kql_string(resource_id)}, "
             f"metric_name:string = {kql_string(metric)}, "
+            f"aggregation:string = {kql_string(aggregation)}, "
             f"interval:timespan = {kql_timespan(parsed_interval)}"
             ");"
         )
-        expression = _AGGREGATION_EXPRESSION[aggregation]
         query = f"""
 {declaration}
 AzureMetrics
 | where _ResourceId =~ resource_id
 | where MetricName == metric_name
-| summarize Value={expression}, SampleCount=sum(Count)
+| summarize AverageNumerator=sumif(Average * Count, isnotnull(Average)),
+            AverageSampleCount=sumif(Count, isnotnull(Average)),
+            MinimumValue=min(Minimum),
+            MaximumValue=max(Maximum),
+            TotalValue=sum(Total),
+            CountValue=sum(Count)
     by bin(TimeGenerated, interval), UnitName
+| project TimeGenerated,
+          Value=case(
+              aggregation == "average" and AverageSampleCount > 0,
+                  AverageNumerator / AverageSampleCount,
+              aggregation == "average" and CountValue > 0,
+                  TotalValue / CountValue,
+              aggregation == "minimum", MinimumValue,
+              aggregation == "maximum", MaximumValue,
+              aggregation == "total", TotalValue,
+              aggregation == "count", todouble(CountValue),
+              real(null)
+          ),
+          SampleCount=CountValue,
+          UnitName
 | order by TimeGenerated asc
 """.strip()
 
@@ -138,6 +151,7 @@ AzureMetrics
             self._ctx,
             scope=LOGS_SCOPE,
             workspace_resource_id=workspace_resource_id,
+            definition=METRIC_TIMESERIES,
             query=query,
             timespan=parsed_timespan,
             on_status=_metric_query_error,
@@ -175,6 +189,7 @@ AzureMetrics
             self._ctx,
             scope=LOGS_SCOPE,
             workspace_resource_id=workspace_resource_id,
+            definition=METRIC_DEFINITIONS,
             query=query,
             timespan=_DEFINITIONS_TIMESPAN,
             on_status=_metric_query_error,

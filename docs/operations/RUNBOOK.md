@@ -160,15 +160,25 @@ Every site whose behaviour or meaning changes under OBO carries that marker. T-2
 ApiManagementGatewayLogs | getschema
 ```
 
-**Pinned columns used by the tools:** `TimeGenerated`, `ApiId`, `OperationId`,
+**Pinned columns used by the tools:** resource-specific
+`ApiManagementGatewayLogs` uses `TimeGenerated`, `ApiId`, `OperationId`,
 `Method`, `ResponseCode`, `TotalTime`, `BackendTime`, `IsRequestSuccess`,
 `LastErrorReason`, `LastErrorSource`, `LastErrorMessage`, `CorrelationId`,
-`Region`, and optional `Url`.
+`Region`, and optional `Url`. Legacy `AzureDiagnostics` uses the corresponding
+APIM `GatewayLogs` columns (`apiId_s`, `operationId_s`, `method_s`,
+`responseCode_d`, `DurationMs`, `backendTime_d`, `isRequestSuccess_b`,
+`lastError_reason_s`, `lastError_source_s`, `lastError_message_s`,
+`correlationId_g`, `region_s`, and `requestUrl_s`), with only those same fields
+allowed as `AdditionalFields` fallbacks.
 
 The KQL uses `column_ifexists` for every projected field. This protects older
 workspace schemas from query failure while still keeping the fixed table and
 fixed output allowlist. Request/response bodies and headers are never
-projected.
+projected. Repository tests validate these pinned mappings structurally but
+cannot execute `getschema` or the gateway queries against live Azure. A
+deployment operator must run the live check above and record any verified
+schema difference here; do not infer a replacement mapping from synthetic
+fixtures.
 
 ### Metric availability (H-05)
 

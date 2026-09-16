@@ -9,6 +9,7 @@ next step, so the model can act on a failure instead of just reporting it.
 from __future__ import annotations
 
 import logging
+import os
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
@@ -40,17 +41,19 @@ def error_envelope(error: ToolError) -> dict[str, object]:
     return {"error": error.model_dump()}
 
 
-def access_denied(resource: str) -> ToolError:
+def access_denied(resource: str, required_role: str) -> ToolError:
     # OBO: under on-behalf-of, a 403 here means the *calling user* lacks
-    # access to `resource`, not that the server's identity is misconfigured.
-    # This message must be rewritten before that migration ships — see the
-    # retrofit checklist in docs/development/SPEC.md Appendix A.
+    # access to `resource`. This message must be revisited before that
+    # migration ships — see the retrofit checklist in SPEC Appendix A.
+    if os.environ.get("APIM_MCP_LOCAL_DEV_CREDENTIAL") == "1":
+        identity = "Your active `az login` identity"
+    else:
+        identity = "The Container App's managed identity"
     return ToolError(
         kind="access_denied",
         message=(
-            f"The server's identity lacks permission to read {resource}. "
-            "This is a configuration issue, not a user permission issue. "
-            "Contact the server operator to grant the required role."
+            f"{identity} lacks permission to read {resource}. Grant the built-in "
+            f"**{required_role}** role at the resource scope."
         ),
     )
 

@@ -18,11 +18,13 @@ param containerImage = '<acr-name>.azurecr.io/apim-mcp:<immutable-tag>'
 param azureTenantId = '<entra-tenant-id>'
 param mcpServerAppId = '<server-app-client-id>'
 param mcpRequiredRole = 'Apim.Read'
+param apimMcpLogLevel = 'INFO'
 
 param apimServices = [
   {
     alias: '<friendly-service-alias>'
     resourceId: '/subscriptions/<subscription-id>/resourceGroups/<resource-group>/providers/Microsoft.ApiManagement/service/<apim-name>'
     logAnalyticsWorkspaceId: '/subscriptions/<subscription-id>/resourceGroups/<resource-group>/providers/Microsoft.OperationalInsights/workspaces/<workspace-name>'
+    gatewayLogTableMode: 'auto'
   }
 ]

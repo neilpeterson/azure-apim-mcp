@@ -19,8 +19,12 @@ def resolve_service(settings: Settings, alias: str) -> ApimServiceConfig | ToolE
 def require_workspace(config: ApimServiceConfig) -> str | ToolError:
     """Return a configured Log Analytics workspace or an actionable result."""
     if config.log_analytics_workspace_id is None:
-        return invalid_input(
-            "service",
-            "a configured service with logAnalyticsWorkspaceId for telemetry",
+        return ToolError(
+            kind="invalid_input",
+            message=(
+                f"Log Analytics is not mapped for service '{config.alias}' in the MCP server's "
+                "`APIM_SERVICES` configuration. Add `logAnalyticsWorkspaceId` with the "
+                "workspace ARM resource ID; Azure diagnostic settings are not auto-discovered."
+            ),
         )
     return config.log_analytics_workspace_id

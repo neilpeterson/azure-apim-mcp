@@ -33,7 +33,7 @@ from apim_mcp.auth.context import CallContext
 from apim_mcp.clients.arm import ArmClient
 from apim_mcp.server import ToolRegistration, create_mcp, wrap_with_middleware
 from apim_mcp.settings import ApimServiceConfig, Settings
-from apim_mcp.tools.discovery import register_discovery_tools
+from apim_mcp.tools.discovery import _capacity_section, register_discovery_tools
 
 FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
 
@@ -41,6 +41,11 @@ RESOURCE_ID = (
     "/subscriptions/00000000-0000-0000-0000-000000000000"
     "/resourceGroups/rg-fixture"
     "/providers/Microsoft.ApiManagement/service/apim-fixture"
+)
+WORKSPACE_ID = (
+    "/subscriptions/00000000-0000-0000-0000-000000000000"
+    "/resourceGroups/rg-fixture"
+    "/providers/Microsoft.OperationalInsights/workspaces/law-fixture"
 )
 
 
@@ -69,8 +74,12 @@ class _FakeMetricsClient:
         }
 
 
-def _service(alias: str) -> ApimServiceConfig:
-    return ApimServiceConfig(alias=alias, resource_id=RESOURCE_ID)
+def _service(alias: str, *, workspace_id: str | None = None) -> ApimServiceConfig:
+    return ApimServiceConfig(
+        alias=alias,
+        resource_id=RESOURCE_ID,
+        log_analytics_workspace_id=workspace_id,
+    )
 
 
 def _settings(*, services: list[ApimServiceConfig] | None = None) -> Settings:
@@ -226,7 +235,11 @@ def test_health_partial_failure(monkeypatch: pytest.MonkeyPatch) -> None:
             return httpx.Response(500, text="synthetic upstream failure")
         return await fixture_transport.handle_async_request(request)
 
-    app, _registry, _settings_obj = _build_app(monkeypatch, transport=httpx.MockTransport(handler))
+    app, _registry, _settings_obj = _build_app(
+        monkeypatch,
+        transport=httpx.MockTransport(handler),
+        services=[_service("prod", workspace_id=WORKSPACE_ID)],
+    )
     with TestClient(app) as client:
         response = _call_tool(
             client, "apim_get_service_health", {"service": "prod", "response_format": "json"}
@@ -247,8 +260,96 @@ def test_health_partial_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     assert payload["certificateExpiry"]["status"] == "ok"
 
 
-def test_health_happy_path_within_latency_budget(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_health_missing_workspace_names_server_configuration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     app, _registry, _settings_obj = _build_app(monkeypatch, transport=_fixture_transport())
+    with TestClient(app) as client:
+        response = _call_tool(
+            client, "apim_get_service_health", {"service": "prod", "response_format": "json"}
+        )
+
+    payload = json.loads(_result_text(response))
+    assert payload["capacityMetric"] == {
+        "status": "unavailable",
+        "reason": (
+            "Log Analytics is not mapped for service 'prod' in the MCP server's "
+            "`APIM_SERVICES` configuration. Add `logAnalyticsWorkspaceId` with the "
+            "workspace ARM resource ID; Azure diagnostic settings are not auto-discovered."
+        ),
+    }
+
+
+@pytest.mark.parametrize(
+    "items",
+    [
+        [],
+        [{"Value": None, "SampleCount": 60.0}],
+        [{"Value": 25.0, "SampleCount": 0.0}],
+    ],
+)
+async def test_health_capacity_unavailable_without_usable_samples(
+    monkeypatch: pytest.MonkeyPatch,
+    items: list[dict[str, Any]],
+) -> None:
+    class EmptyMetricsClient:
+        def __init__(self, ctx: CallContext) -> None:
+            self.ctx = ctx
+
+        async def query(
+            self, resource_id: str, workspace_resource_id: str | None, **kwargs: Any
+        ) -> dict[str, Any]:
+            return {"items": items, "partial": False}
+
+    monkeypatch.setattr("apim_mcp.tools.discovery.MetricsClient", EmptyMetricsClient)
+    ctx = CallContext(oid="oid", upn="u@example.com", roles=(), bearer_token="token")
+
+    result = await _capacity_section(ctx, _service("prod", workspace_id=WORKSPACE_ID))
+
+    assert result == {
+        "status": "unavailable",
+        "reason": (
+            "No usable Capacity samples were found in Log Analytics for the past hour. "
+            "Confirm `AllMetrics` export and allow for ingestion delay; diagnostic settings "
+            "do not backfill historical data."
+        ),
+    }
+
+
+async def test_health_capacity_marks_partial_average(monkeypatch: pytest.MonkeyPatch) -> None:
+    class PartialMetricsClient:
+        def __init__(self, ctx: CallContext) -> None:
+            self.ctx = ctx
+
+        async def query(
+            self, resource_id: str, workspace_resource_id: str | None, **kwargs: Any
+        ) -> dict[str, Any]:
+            return {
+                "items": [{"Value": 50.0, "SampleCount": 4.0}],
+                "partial": True,
+            }
+
+    monkeypatch.setattr("apim_mcp.tools.discovery.MetricsClient", PartialMetricsClient)
+    ctx = CallContext(oid="oid", upn="u@example.com", roles=(), bearer_token="token")
+
+    result = await _capacity_section(ctx, _service("prod", workspace_id=WORKSPACE_ID))
+
+    assert result == {
+        "status": "ok",
+        "average": 50.0,
+        "sampleCount": 4.0,
+        "timespan": "PT1H",
+        "partial": True,
+        "reason": "Log Analytics returned partial results; the average may be incomplete.",
+    }
+
+
+def test_health_happy_path_within_latency_budget(monkeypatch: pytest.MonkeyPatch) -> None:
+    app, _registry, _settings_obj = _build_app(
+        monkeypatch,
+        transport=_fixture_transport(),
+        services=[_service("prod", workspace_id=WORKSPACE_ID)],
+    )
     with TestClient(app) as client:
         started = time.monotonic()
         response = _call_tool(

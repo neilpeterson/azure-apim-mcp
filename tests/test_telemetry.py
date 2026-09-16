@@ -45,6 +45,7 @@ from apim_mcp.common.errors import ToolError, upstream_error
 from apim_mcp.common.telemetry import AUDIT_LOGGER_NAME, run_permission_canary
 from apim_mcp.server import (
     ToolRegistration,
+    _configure_logging,
     audited_tool,
     create_app,
     create_mcp,
@@ -220,6 +221,20 @@ def test_every_tool_emits_audit_event(caplog: pytest.LogCaptureFixture) -> None:
     assert len(audit_records) == len(registry)
     logged_tools = {json.loads(r.message)["tool"] for r in audit_records}
     assert logged_tools == set(registry)
+
+
+@pytest.mark.parametrize("level", ["DEBUG", "INFO", "WARNING", "ERROR"])
+def test_configurable_log_level_never_suppresses_audit_events(level: str) -> None:
+    application_logger = logging.getLogger("apim_mcp")
+    audit_logger = logging.getLogger(AUDIT_LOGGER_NAME)
+    original_application_level = application_logger.level
+    original_audit_level = audit_logger.level
+    try:
+        _configure_logging(level)
+        assert audit_logger.getEffectiveLevel() == logging.INFO
+    finally:
+        application_logger.setLevel(original_application_level)
+        audit_logger.setLevel(original_audit_level)
 
 
 def test_audit_event_contains_all_fields_and_no_response_body(

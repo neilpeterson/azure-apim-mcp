@@ -20,11 +20,30 @@ from apim_mcp.common.errors import (
 )
 
 
-def test_access_denied_names_actionable_next_step() -> None:
-    error = access_denied("service 'prod'")
+def test_access_denied_names_local_identity_and_role(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("APIM_MCP_LOCAL_DEV_CREDENTIAL", "1")
+
+    error = access_denied("service 'prod'", "API Management Service Reader Role")
+
     assert error.kind == "access_denied"
-    assert "configuration issue" in error.message
-    assert "Contact the server operator" in error.message
+    assert "Your active `az login` identity" in error.message
+    assert "API Management Service Reader Role" in error.message
+    assert "managed identity" not in error.message
+
+
+def test_access_denied_names_deployed_identity_and_role(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("APIM_MCP_LOCAL_DEV_CREDENTIAL", raising=False)
+
+    error = access_denied("gateway logs", "Log Analytics Reader")
+
+    assert error.kind == "access_denied"
+    assert "Container App's managed identity" in error.message
+    assert "Log Analytics Reader" in error.message
+    assert "az login" not in error.message
 
 
 def test_not_found_names_actionable_next_step() -> None:
@@ -72,7 +91,7 @@ def test_index_unavailable_names_actionable_next_step() -> None:
 
 def test_all_seven_kinds_covered() -> None:
     builders = {
-        "access_denied": access_denied("resource"),
+        "access_denied": access_denied("resource", "Reader"),
         "not_found": not_found("API", "id", "svc"),
         "throttled": throttled(1),
         "timeout": timeout(),
