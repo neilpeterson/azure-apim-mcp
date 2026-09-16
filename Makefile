@@ -1,9 +1,14 @@
-.PHONY: check lint types test fmt fixtures run token inspect clean
+.PHONY: check lint types test fmt fixtures run token bench inspect clean
 
 # --no-sync: never touch the network on a plain `make check`/`make run`. The
 # venv is expected to already satisfy pyproject.toml; run `uv sync` by hand
 # after adding/upgrading a dependency (see docs/development/LOCAL_TESTING.md).
 UV := uv run --no-sync
+BENCH_BASE ?= scripts/bench
+BENCH_OBSERVE_LABEL ?= interactive
+BENCH_OBSERVE_RESULTS ?= interactive.bench-results.jsonl
+BENCH_OBSERVE_SESSION ?= latest
+BENCH_OBSERVE_ARGS ?=
 
 # The gate. No task is complete until this passes.
 check: lint types test
@@ -34,6 +39,15 @@ run:
 # Normal local and hosted VS Code connections use automatic OAuth discovery.
 token:
 	$(UV) python scripts/get_token.py
+
+bench:
+	$(UV) python "$(BENCH_BASE)/copilot_bench.py" \
+		observe \
+		--base-dir "$(BENCH_BASE)" \
+		--results "$(BENCH_OBSERVE_RESULTS)" \
+		--session "$(BENCH_OBSERVE_SESSION)" \
+		--label "$(BENCH_OBSERVE_LABEL)" \
+		--follow $(BENCH_OBSERVE_ARGS)
 
 inspect:
 	npx @modelcontextprotocol/inspector

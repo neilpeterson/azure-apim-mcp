@@ -4,6 +4,22 @@ Read-only MCP server for exploring Azure API Management from an MCP-compatible
 client. It exposes API inventory and configuration, OpenAPI definitions,
 search, and service health without exposing APIM secrets.
 
+## Why a purpose-built APIM MCP server
+
+Azure MCP Server provides broad Azure coverage but does not expose a dedicated
+API Management (`apim`) namespace. APIM requests therefore rely on generic
+Azure Resource Graph, Azure CLI, and ARM REST operations. This server exposes
+focused, read-only APIM tools directly, reducing discovery and response
+interpretation while returning bounded, redacted results.
+
+In an observed four-prompt comparison using the same model, the purpose-built
+server completed the workload in roughly one-third of the session time while
+using about 72% fewer tokens and 74% fewer AI credits. Both approaches answered
+the core questions accurately, but the focused server needed substantially
+fewer tool calls and returned APIM-specific results directly. Azure MCP
+produced broader infrastructure detail in some responses, but did so through
+additional discovery, CLI, and REST operations.
+
 ## Connect to a deployed server
 
 ### VS Code and GitHub Copilot
