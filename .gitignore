@@ -14,3 +14,5 @@ dist/
 # resource identifiers. Commit only the sanitized examples.
 infra/**/bicep-params/*.bicepparam
 !infra/**/bicep-params/example.bicepparam
+
+*.bench-results.jsonl
