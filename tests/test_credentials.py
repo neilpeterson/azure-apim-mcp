@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import inspect
 import json
+import tomllib
+from pathlib import Path
 
 import pytest
 from azure.core.credentials_async import AsyncTokenCredential
@@ -94,6 +96,25 @@ def test_credential_for_returns_managed_identity_credential(
     credential = credential_for(ctx, ARM_SCOPE)
     assert isinstance(credential, ManagedIdentityCredential)
     assert isinstance(credential, AsyncTokenCredential)
+
+
+def test_managed_identity_app_service_transport_is_available(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _set_env(monkeypatch)
+    monkeypatch.setenv("IDENTITY_ENDPOINT", "http://localhost:42356/msi/token")
+    monkeypatch.setenv("IDENTITY_HEADER", "fixture-secret")
+
+    credential = credential_for(_sample_context(), ARM_SCOPE)
+
+    assert isinstance(credential, ManagedIdentityCredential)
+
+
+def test_aiohttp_is_a_runtime_dependency() -> None:
+    pyproject = tomllib.loads(Path("pyproject.toml").read_text())
+    dependencies = pyproject["project"]["dependencies"]
+
+    assert any(dependency.startswith("aiohttp") for dependency in dependencies)
 
 
 def test_credential_for_reuses_cached_instance(monkeypatch: pytest.MonkeyPatch) -> None:

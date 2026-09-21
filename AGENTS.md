@@ -37,7 +37,7 @@ candidate diff is clean.
 - **One task at a time**, from `docs/development/TASKS.md`, in order, unless the task is marked `[PARALLEL-SAFE]`.
 - **Read the referenced spec section** (`docs/development/SPEC.md` §N) before starting. The task list is a summary, not the requirement.
 - **Tests before implementation.** Every task lists named tests in its acceptance criteria. Write them failing, then make them pass.
-- **Never call live Azure.** Tests run against recorded fixtures in `tests/fixtures/`. If you need a fixture that does not exist, add a recorder entry in `scripts/record_fixtures.py` and stop — a human runs it.
+- **Live Azure deployment operations require explicit user instruction.** When instructed, agents may build and push deployment images, deploy or update the MCP server infrastructure, and verify the deployment. Otherwise, do not call live Azure. Tests always run against recorded fixtures in `tests/fixtures/`. If you need a fixture that does not exist, add a recorder entry in `scripts/record_fixtures.py` and stop — a human runs it.
 - **Update `docs/development/TASKS.md`** — tick the checkboxes as you complete them. That file is the shared state between sessions.
 
 ## The eleven principles
