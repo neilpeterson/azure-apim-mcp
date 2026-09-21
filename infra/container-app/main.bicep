@@ -2,9 +2,8 @@
 //
 // Provisions: Container App (minReplicas 1) + environment, user-assigned
 // managed identity, Log Analytics workspace + Application Insights for the
-// server's own telemetry, and built-in role assignments granting that identity
-// access to the configured APIM instances and workspaces at the narrowest
-// scope possible, never the resource group or subscription.
+// server's own telemetry, and the ACR pull role assignment. APIM and Log
+// Analytics data-plane roles are assigned manually; see the deployment guide.
 //
 // Deliberately does NOT provision the container registry — that is
 // `../container-registry/main.bicep`, deployed first and separately so an
@@ -60,7 +59,7 @@ param mcpRequiredRole string = 'Apim.Read'
 ])
 param apimMcpLogLevel string = 'INFO'
 
-@description('The APIM_SERVICES allowlist (docs/development/SPEC.md §5.3): the alias->resourceId mapping the server is permitted to query, and the resource group(s) RBAC will be scoped to. Each entry\'s resourceGroup is derived automatically from resourceId; logAnalyticsWorkspaceId and gatewayLogTableMode are optional.')
+@description('The APIM_SERVICES allowlist (docs/development/SPEC.md §5.3): the alias->resourceId mapping the server is permitted to query. The operator must grant the UAMI the documented roles on each resource; logAnalyticsWorkspaceId and gatewayLogTableMode are optional.')
 param apimServices array
 
 @description('CPU cores allocated to the container.')
@@ -127,43 +126,6 @@ resource acrPullAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' 
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', acrPullRoleId)
   }
 }
-
-// ---------------------------------------------------------------------------
-// Built-in API Management Service Reader Role (docs/development/SPEC.md §4.2), assigned
-// only at each individual APIM resource. It covers the currently implemented
-// configuration, Resource Health, and permission-canary calls while excluding
-// user-key reads and APIM secret-retrieval actions.
-// ---------------------------------------------------------------------------
-
-var apimServiceReaderRoleId = '71522526-b88f-4d52-b57f-d31fc3546d0d'
-var apimServiceReaderRoleDefinitionId = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', apimServiceReaderRoleId)
-var telemetryServices = filter(apimServices, svc => contains(svc, 'logAnalyticsWorkspaceId') && svc.logAnalyticsWorkspaceId != null)
-var workspaceResourceIds = union(map(telemetryServices, svc => svc.logAnalyticsWorkspaceId), [])
-
-module apimServiceReaderRoleAssignments 'bicep-modules/role-assignment-apim.bicep' = [
-  for svc in apimServices: {
-    name: 'rbac-apim-reader-${svc.alias}'
-    scope: resourceGroup(split(svc.resourceId, '/')[2], split(svc.resourceId, '/')[4])
-    params: {
-      apimServiceName: last(split(svc.resourceId, '/'))
-      principalId: uami.properties.principalId
-      roleDefinitionId: apimServiceReaderRoleId
-    }
-  }
-]
-
-// Built-in Log Analytics Reader on each configured workspace, scoped to
-// that workspace only (already excludes workspaces/sharedKeys/read).
-module lawRoleAssignments 'bicep-modules/role-assignment-law.bicep' = [
-  for workspaceResourceId in workspaceResourceIds: {
-    name: 'rbac-law-${uniqueString(workspaceResourceId)}'
-    scope: resourceGroup(split(workspaceResourceId, '/')[2], split(workspaceResourceId, '/')[4])
-    params: {
-      workspaceName: last(split(workspaceResourceId, '/'))
-      principalId: uami.properties.principalId
-    }
-  }
-]
 
 // ---------------------------------------------------------------------------
 // Container Apps (docs/development/SPEC.md §10.1)
@@ -280,5 +242,4 @@ output mcpServerAudience string = mcpServerAudience
 output SERVICE_API_NAME string = containerApp.name
 output uamiClientId string = uami.properties.clientId
 output uamiPrincipalId string = uami.properties.principalId
-output apimServiceReaderRoleDefinitionId string = apimServiceReaderRoleDefinitionId
 output AZURE_CONTAINER_REGISTRY_ENDPOINT string = containerRegistry.properties.loginServer

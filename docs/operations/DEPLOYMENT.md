@@ -16,13 +16,15 @@ Deployment is split into two Bicep templates:
 1. `infra/container-registry/main.bicep` creates an Azure Container Registry.
 2. `infra/container-app/main.bicep` creates the Container App, Container Apps
    environment, user-assigned managed identity (UAMI), Application Insights,
-   Log Analytics workspace, and built-in role assignments.
+   Log Analytics workspace, and the ACR pull role assignment.
 
 The split is intentional. The registry must exist and contain the application
 image before the Container App tries to start.
 
-The templates do **not** create Entra app registrations. Those are tenant-level,
-interactive operations and must be completed separately.
+The templates do **not** create Entra app registrations or grant the runtime
+identity access to existing APIM services and their Log Analytics workspaces.
+Those operations may cross subscription boundaries and must be completed
+manually.
 
 ## Quick start
 
@@ -89,7 +91,11 @@ already understood. The detailed sections below explain each step.
      --parameters infra/container-app/bicep-params/my-environment.bicepparam
    ```
 
-8. Read the deployed audience:
+8. Grant the deployed UAMI **API Management Service Reader Role** on every
+   configured APIM resource and **Log Analytics Reader** on every configured
+   workspace, following [Grant runtime RBAC](#7-grant-runtime-rbac).
+
+9. Read the deployed audience:
 
    ```bash
    az deployment group show \
@@ -99,10 +105,10 @@ already understood. The detailed sections below explain each step.
      --output tsv
    ```
 
-9. Add that exact URL to the **server** app registration's `identifierUris`.
+10. Add that exact URL to the **server** app registration's `identifierUris`.
    Keep `http://localhost:8000/mcp` if local development is also required.
 
-10. Verify the deployment and connect VS Code using the URL from step 8.
+11. Verify the deployment and connect VS Code using the URL from step 9.
 
 ## Prerequisites
 
@@ -118,14 +124,15 @@ already understood. The detailed sections below explain each step.
 The deploying identity needs permission to:
 
 - create resources in the deployment resource group;
-- create role assignments on the ACR, every configured APIM resource, and
-  every configured Log Analytics workspace; and
+- create the ACR pull role assignment in the deployment resource group;
 - push or remotely build images in the registry.
 
-In many tenants this requires a combination such as Contributor plus
-User Access Administrator, or an equivalent custom role. Do not broaden the
-runtime UAMI's permissions to make deployment succeed; deployment permissions
-and runtime permissions are separate.
+The operator performing the separate runtime RBAC steps also needs permission
+to create role assignments on every configured APIM resource and Log Analytics
+workspace. These resources may be in different subscriptions. In many tenants
+this requires User Access Administrator, Role Based Access Control
+Administrator, or an equivalent custom role at each target scope. Do not
+broaden the runtime UAMI's permissions to make deployment succeed.
 
 ### Values to collect
 
@@ -170,7 +177,7 @@ Create `apim-mcp-server`:
 
 The deployed Application ID URI is not known until the Container App has an
 FQDN. Add it after deployment in
-[Register the deployed audience](#7-register-the-deployed-audience).
+[Register the deployed audience](#8-register-the-deployed-audience).
 
 ### OAuth client preauthorization
 
@@ -220,7 +227,7 @@ must be globally unique. Registry admin credentials remain disabled.
 The registry is deployed separately and its region is independent of the
 Container App region; moving the Container App does not require moving ACR.
 
-### Container App and RBAC
+### Container App
 
 Copy and edit the sanitized Container App example:
 
@@ -258,10 +265,8 @@ param apimServices = [
 `containerImage` must reference an image that exists before the Container App
 deployment starts.
 
-`apimServices` is both:
-
-- the server's authoritative allowlist; and
-- the source for the per-resource RBAC assignments.
+`apimServices` is the server's authoritative allowlist. It does not grant
+access to those resources.
 
 Each `alias` is the friendly value clients pass to tools, such as
 `service="prod"`. Omit `logAnalyticsWorkspaceId` when telemetry access is not
@@ -269,18 +274,11 @@ needed for that instance. Set `gatewayLogTableMode` to `azureDiagnostics` or
 `resourceSpecific` when the diagnostic destination is known; omit it to use
 automatic dual-table support.
 
-The template assigns:
-
-- the built-in **API Management Service Reader Role** to the UAMI on each
-  individual APIM resource; and
-- the built-in **Log Analytics Reader** role to the UAMI on each configured
-  workspace.
-
-It never grants these runtime roles at resource-group or subscription scope.
-See [`TELEMETRY.md`](../features/TELEMETRY.md) for the role-safety rationale,
-required pre-existing diagnostic configuration, and validation steps. The
-template does not modify existing APIM services or workspaces beyond these
-read-only role assignments.
+After deploying the Container App, grant its UAMI the required roles manually
+at each individual APIM resource and workspace. See
+[Grant runtime RBAC](#7-grant-runtime-rbac) and
+[`TELEMETRY.md`](../features/TELEMETRY.md) for the role-safety rationale and
+required pre-existing diagnostic configuration.
 
 ## 3. Validate the templates
 
@@ -391,7 +389,6 @@ The deployment creates:
 - `minReplicas: 1` and `maxReplicas: 3`;
 - a UAMI attached to the app;
 - identity-based ACR pull;
-- built-in APIM and Log Analytics role assignments at narrow scopes;
 - a Log Analytics workspace for Container Apps logs; and
 - Application Insights for server telemetry.
 
@@ -425,7 +422,52 @@ egress to:
 - `*.blob.core.windows.net`
 - Application Insights ingestion endpoints
 
-## 7. Register the deployed audience
+## 7. Grant runtime RBAC
+
+The Bicep deployment deliberately does not assign permissions on existing APIM
+services or Log Analytics workspaces. Grant these roles manually after the
+UAMI exists. Repeat the commands for every entry in `apimServices`.
+
+Read the UAMI principal ID:
+
+```bash
+PRINCIPAL_ID="$(az identity show \
+  --name "<uami-name>" \
+  --resource-group "<deployment-resource-group>" \
+  --query principalId \
+  --output tsv)"
+```
+
+Grant **API Management Service Reader Role** on one APIM resource:
+
+```bash
+APIM_RESOURCE_ID="/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.ApiManagement/service/<name>"
+
+az role assignment create \
+  --assignee-object-id "$PRINCIPAL_ID" \
+  --assignee-principal-type ServicePrincipal \
+  --role "API Management Service Reader Role" \
+  --scope "$APIM_RESOURCE_ID"
+```
+
+When the service entry includes `logAnalyticsWorkspaceId`, grant **Log
+Analytics Reader** on that workspace:
+
+```bash
+WORKSPACE_RESOURCE_ID="/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.OperationalInsights/workspaces/<name>"
+
+az role assignment create \
+  --assignee-object-id "$PRINCIPAL_ID" \
+  --assignee-principal-type ServicePrincipal \
+  --role "Log Analytics Reader" \
+  --scope "$WORKSPACE_RESOURCE_ID"
+```
+
+Keep both assignments at the individual resource scope. Do not grant either
+role at resource-group or subscription scope. Role assignments can take several
+minutes to propagate.
+
+## 8. Register the deployed audience
 
 Read the exact URL generated by the template:
 
@@ -461,7 +503,7 @@ No client app registration update and no second infrastructure deployment are
 required. If the Container App hostname changes later, repeat this step for
 the new hostname.
 
-## 8. Verify the deployment
+## 9. Verify the deployment
 
 The health and discovery endpoints do not require a token:
 
@@ -501,7 +543,7 @@ az containerapp logs show \
   --follow
 ```
 
-## 9. Connect a client
+## 10. Connect a client
 
 ### VS Code and GitHub Copilot
 
@@ -598,7 +640,7 @@ Never set `APIM_MCP_LOCAL_DEV_CREDENTIAL` in Container Apps.
 | Symptom | Cause | Resolution |
 |---|---|---|
 | Container cannot pull the image | Image/tag does not exist or `AcrPull` is missing | Confirm `containerImage`, the ACR build, the UAMI attachment, and the ACR role assignment |
-| Deployment cannot create role assignments | Deploying identity lacks authorization permissions | Grant the deploying identity role-assignment permissions at the ACR, APIM, and workspace scopes; do not broaden the runtime UAMI |
+| Deployment cannot create the ACR role assignment | Deploying identity lacks authorization permissions | Grant the deploying identity role-assignment permissions on the ACR; do not broaden the runtime UAMI |
 | `401 missing Authorization header` | Client did not begin or complete OAuth | Restart the MCP server from VS Code and inspect the discovery endpoint |
 | `401 wrong audience` | `MCP_SERVER_APP_ID` does not match the token's `aud` | Set `mcpServerAppId` to the server app registration's Application (client) ID |
 | `403 missing required role` | Caller lacks `Apim.Read` | Assign the user or group to the app role on the server enterprise application |

@@ -245,6 +245,22 @@ def test_existing_apim_infrastructure_is_not_modified() -> None:
     )
 
 
+def test_container_app_template_only_assigns_acr_pull() -> None:
+    """Runtime data-plane RBAC is granted manually, outside the app deployment."""
+    template = (INFRA_ROOT / "container-app" / "main.bicep").read_text(encoding="utf-8")
+    deployment_guide = (
+        Path(__file__).resolve().parent.parent / "docs" / "operations" / "DEPLOYMENT.md"
+    ).read_text(encoding="utf-8")
+
+    assert "role-assignment-apim.bicep" not in template
+    assert "role-assignment-law.bicep" not in template
+    assert template.count("Microsoft.Authorization/roleAssignments@") == 1
+    assert "acrPullAssignment" in template
+    assert "az role assignment create \\\n" in deployment_guide
+    assert '--role "API Management Service Reader Role"' in deployment_guide
+    assert '--role "Log Analytics Reader"' in deployment_guide
+
+
 def _module_level_statements(tree: ast.Module) -> list[ast.stmt]:
     return list(tree.body)
 
